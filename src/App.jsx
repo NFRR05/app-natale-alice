@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { enableNetwork } from 'firebase/firestore'
-import { auth, db } from '../firebaseConfig'
+import { enableNetwork, collection, doc, setDoc, getDoc } from 'firebase/firestore'
+import { auth, db, messaging, vapidKey } from '../firebaseConfig'
+import { getToken, onMessage } from 'firebase/messaging'
 import Login from './components/Login'
 import Home from './components/Home'
 
@@ -31,6 +32,7 @@ function App() {
         })
         setUser(currentUser)
         setupNotifications()
+        setupPushNotifications(currentUser)
       } else {
         console.log('👤 [APP] No user authenticated')
         setUser(null)
@@ -138,6 +140,82 @@ function App() {
     if (Notification.permission === 'granted') {
       console.log('✅ [NOTIFICATIONS] Permission granted, scheduling notification')
       scheduleDailyNotification()
+    }
+  }
+
+  // Setup Firebase Cloud Messaging (FCM) for push notifications
+  const setupPushNotifications = async (currentUser) => {
+    if (!messaging) {
+      console.warn('⚠️ [FCM] Messaging not available')
+      return
+    }
+
+    try {
+      console.log('🔔 [FCM] Setting up push notifications...')
+      
+      // Register service worker
+      if ('serviceWorker' in navigator) {
+        try {
+          const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+            scope: '/'
+          })
+          console.log('✅ [FCM] Service worker registered:', registration.scope)
+        } catch (swError) {
+          console.error('❌ [FCM] Service worker registration failed:', swError)
+          return
+        }
+      }
+
+      // Request notification permission
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        console.warn('⚠️ [FCM] Notification permission denied')
+        return
+      }
+
+      // Get FCM token
+      if (!vapidKey || vapidKey === 'BOIAhV6RofwqbDY3HfRbupMmt4QQ1_4aOk_daBQoyt05hLaaewiAAb_NWUYEgWBpmYu3zgq5gArvGiRjojaBqBQ') {
+        console.error('❌ [FCM] VAPID key not configured! Please add it to firebaseConfig.js')
+        console.error('❌ [FCM] Get it from Firebase Console → Cloud Messaging → Web Push certificates')
+        return
+      }
+      
+      const token = await getToken(messaging, { vapidKey })
+      
+      if (token) {
+        console.log('✅ [FCM] FCM token obtained:', token.substring(0, 20) + '...')
+        
+        // Save token to Firestore
+        const tokenRef = doc(collection(db, 'user_tokens'), currentUser.uid)
+        await setDoc(tokenRef, {
+          user_id: currentUser.uid,
+          email: currentUser.email,
+          fcm_token: token,
+          updated_at: new Date()
+        }, { merge: true })
+        
+        console.log('✅ [FCM] Token saved to Firestore')
+      } else {
+        console.warn('⚠️ [FCM] No FCM token available')
+      }
+
+      // Handle foreground messages
+      onMessage(messaging, (payload) => {
+        console.log('📨 [FCM] Foreground message received:', payload)
+        
+        // Show notification even when app is in foreground
+        if (Notification.permission === 'granted') {
+          new Notification(payload.notification?.title || 'MyBubiAPP', {
+            body: payload.notification?.body || '',
+            icon: payload.notification?.icon || '/favicon.svg',
+            badge: '/favicon.svg',
+            tag: payload.data?.type || 'default',
+            data: payload.data || {}
+          })
+        }
+      })
+    } catch (error) {
+      console.error('❌ [FCM] Error setting up push notifications:', error)
     }
   }
 
