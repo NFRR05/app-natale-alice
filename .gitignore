@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-# package-lock.json - commentato per Vercel (alcuni progetti lo richiedono)
+package-lock.json
 
 # Build output
 dist/

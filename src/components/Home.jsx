@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { signOut } from 'firebase/auth'
 import { 
   collection, 
@@ -8,9 +8,7 @@ import {
   where, 
   getDocs, 
   enableNetwork,
-  waitForPendingWrites,
-  onSnapshot,
-  setDoc
+  waitForPendingWrites 
 } from 'firebase/firestore'
 import { auth, db } from '../../firebaseConfig'
 import DailyMemory from './DailyMemory'
@@ -25,55 +23,11 @@ export default function Home({ user }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [dataLoaded, setDataLoaded] = useState(false)
-  const partnerUploadListenerRef = useRef(null)
-  const isLoadingRef = useRef(false) // Prevenire chiamate multiple simultanee
 
   useEffect(() => {
-    // Error handler globale per catturare errori Firestore non gestiti
-    const handleUnhandledError = (event) => {
-      if (event.error && event.error.message && event.error.message.includes('INTERNAL ASSERTION FAILED')) {
-        // Preveni che l'errore venga mostrato nella console
-        event.preventDefault()
-        console.debug('🔇 [HOME] Suppressed Firestore internal error')
-        return false
-      }
-    }
-    
-    // Error handler per promise rejection non gestite
-    const handleUnhandledRejection = (event) => {
-      if (event.reason && event.reason.message && event.reason.message.includes('INTERNAL ASSERTION FAILED')) {
-        event.preventDefault()
-        console.debug('🔇 [HOME] Suppressed Firestore promise rejection')
-        return false
-      }
-    }
-    
-    window.addEventListener('error', handleUnhandledError)
-    window.addEventListener('unhandledrejection', handleUnhandledRejection)
-    
-    // Prevenire chiamate multiple simultanee
-    if (isLoadingRef.current) {
-      console.log('⚠️ [HOME] Already loading, skipping...')
-      return
-    }
     loadDailyData()
-    
-    // Cleanup quando il componente viene smontato o l'utente cambia
-    return () => {
-      window.removeEventListener('error', handleUnhandledError)
-      window.removeEventListener('unhandledrejection', handleUnhandledRejection)
-      
-      if (partnerUploadListenerRef.current) {
-        console.log('🧹 [HOME] Cleaning up partner upload listener')
-        try {
-          partnerUploadListenerRef.current()
-        } catch (cleanupError) {
-          console.warn('⚠️ [HOME] Error during listener cleanup:', cleanupError)
-        }
-        partnerUploadListenerRef.current = null
-      }
-      isLoadingRef.current = false
-    }
+    // NO TIMEOUT - lascia che le query completino naturalmente
+    // Il loading spinner resterà attivo finché loadDailyData() non completa
   }, [user])
 
   const loadDailyData = async () => {
@@ -147,8 +101,14 @@ export default function Home({ user }) {
         
         console.log('📖 [HOME] Step 3: Calling getDocs() (cache + server)...')
         const startTime = Date.now()
-        // Usa getDocs() normale che prova cache e poi server - NO TIMEOUT
-        const allDocs = await getDocs(dailyPostsRef)
+        // Usa getDocs() normale che prova cache e poi server
+        // Aggiungi un timeout per evitare di aspettare troppo
+        const getDocsPromise = getDocs(dailyPostsRef)
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('getDocs timeout after 20 seconds')), 20000)
+        )
+        
+        const allDocs = await Promise.race([getDocsPromise, timeoutPromise])
         const endTime = Date.now()
         console.log(`⏱️ [HOME] getDocs() completed in ${endTime - startTime}ms`)
         console.log('📖 [HOME] Query source:', allDocs.metadata.fromCache ? 'cache' : 'server')
@@ -289,56 +249,27 @@ export default function Home({ user }) {
         canSeePartner: !!(myUploadData && myUploadData.image_url)
       })
       } catch (error) {
-        // Ignora errori "already-exists" e "INTERNAL ASSERTION FAILED" - sono errori interni di Firestore
-        const isInternalError = error.code === 'already-exists' || 
-            (error.message && error.message.includes('INTERNAL ASSERTION FAILED'))
-        
-        if (isInternalError) {
-          // Log silenzioso per errori interni - non spammare la console
-          // I dati vengono comunque caricati correttamente
-          console.debug('🔇 [HOME] Internal Firestore error (ignored):', error.message?.substring(0, 50))
+        // Ignora errori "already-exists" - sono errori interni di Firestore non critici
+        if (error.code === 'already-exists') {
+          console.warn('⚠️ [HOME] Ignoring internal Firestore error (already-exists) - this is harmless')
+          // Continua normalmente, la query può comunque funzionare
         } else {
           console.error('❌ [HOME] ===== ERROR IN UPLOADS FETCH =====')
           console.error('❌ [HOME] Error name:', error.name)
           console.error('❌ [HOME] Error message:', error.message)
           console.error('❌ [HOME] Error code:', error.code)
+          console.error('❌ [HOME] Error stack:', error.stack)
+          console.error('❌ [HOME] Full error object:', error)
           console.warn('⚠️ [HOME] Continuing without uploads data')
+          // Continua con valori null, l'app funzionerà comunque
         }
-        // Continua con valori null, l'app funzionerà comunque
       }
 
       setMyUpload(myUploadData)
       setPartnerUpload(partnerUploadData)
       setDataLoaded(true)
       setLoading(false)
-      isLoadingRef.current = false
       console.log('🏁 [HOME] Data loading completed successfully')
-      
-      // Salva il token FCM in Firestore per questo utente
-      // TEMPORANEAMENTE DISABILITATO per verificare se causa conflitti con le query
-      // setTimeout(() => {
-      //   saveFCMToken()
-      // }, 2000)
-      
-      // Setup listener per monitorare nuovi upload del partner in tempo reale
-      // TEMPORANEAMENTE DISABILITATO per evitare conflitti con getDocs()
-      // L'errore "INTERNAL ASSERTION FAILED" si verifica quando onSnapshot() viene chiamato
-      // sulla stessa collezione dove abbiamo appena fatto getDocs()
-      // TODO: Riabilitare quando risolto il conflitto Firestore
-      // setTimeout(() => {
-      //   try {
-      //     setupPartnerUploadListener()
-      //   } catch (error) {
-      //     console.error('❌ [HOME] Error setting up partner listener:', error)
-      //     setTimeout(() => {
-      //       try {
-      //         setupPartnerUploadListener()
-      //       } catch (retryError) {
-      //         console.error('❌ [HOME] Retry also failed:', retryError)
-      //       }
-      //     }, 3000)
-      //   }
-      // }, 10000) // Delay molto lungo per evitare conflitti
     } catch (error) {
       console.error('❌ [HOME] Error loading data:', error)
       console.error('❌ [HOME] Error details:', {
@@ -348,7 +279,6 @@ export default function Home({ user }) {
       setError(error.message || 'Impossibile caricare i dati del giorno. Riprova più tardi.')
       setLoading(false)
       setDataLoaded(false)
-      isLoadingRef.current = false
     }
   }
 
@@ -360,140 +290,6 @@ export default function Home({ user }) {
     } catch (error) {
       console.error('❌ [HOME] Logout error:', error)
       alert('Errore durante il logout: ' + error.message)
-    }
-  }
-
-  // Salva il token FCM in Firestore
-  const saveFCMToken = async () => {
-    if (!user) return
-    
-    try {
-      const fcmToken = localStorage.getItem('fcmToken')
-      if (fcmToken) {
-        const userTokenRef = doc(db, 'user_tokens', user.uid)
-        await setDoc(userTokenRef, {
-          fcm_token: fcmToken,
-          user_id: user.uid,
-          email: user.email,
-          updated_at: new Date()
-        }, { merge: true })
-        console.log('✅ [HOME] FCM token saved to Firestore')
-      }
-    } catch (error) {
-      console.error('❌ [HOME] Error saving FCM token:', error)
-    }
-  }
-
-  // Setup listener per monitorare nuovi upload del partner
-  const setupPartnerUploadListener = () => {
-    if (!user || !dateId) {
-      console.log('⚠️ [HOME] Cannot setup listener - missing user or dateId', { user: !!user, dateId })
-      return
-    }
-
-    console.log('👂 [HOME] Setting up partner upload listener...')
-    
-    // Cancella listener precedente se esiste
-    if (partnerUploadListenerRef.current) {
-      console.log('🧹 [HOME] Cleaning up previous listener')
-      try {
-        partnerUploadListenerRef.current()
-      } catch (cleanupError) {
-        console.warn('⚠️ [HOME] Error cleaning up previous listener:', cleanupError)
-      }
-      partnerUploadListenerRef.current = null
-    }
-
-    // Usa un piccolo delay aggiuntivo per assicurarsi che Firestore sia completamente pronto
-    setTimeout(() => {
-      try {
-        // Crea query per upload del partner di oggi
-        const uploadsRef = collection(db, 'uploads')
-        const q = query(
-          uploadsRef,
-          where('date_id', '==', dateId)
-        )
-
-        console.log('👂 [HOME] Creating onSnapshot listener...')
-
-        // Ascolta in tempo reale per nuovi documenti
-        const unsubscribe = onSnapshot(
-          q,
-          (snapshot) => {
-            console.log('👂 [HOME] Snapshot update received, checking for new uploads...')
-            snapshot.docChanges().forEach((change) => {
-              if (change.type === 'added') {
-                const uploadData = change.doc.data()
-                const uploadUserId = uploadData.user_id
-
-                // Verifica se è un upload del partner (non dell'utente corrente)
-                if (uploadUserId && uploadUserId !== user.uid) {
-                  console.log('🔔 [HOME] Partner uploaded a new photo!', uploadData)
-                  
-                  // Mostra notifica
-                  showPartnerUploadNotification()
-                }
-              }
-            })
-          },
-          (error) => {
-            console.error('❌ [HOME] Partner upload listener error:', error)
-            // Se c'è un errore, prova a riconnettere dopo 5 secondi
-            setTimeout(() => {
-              console.log('🔄 [HOME] Retrying partner upload listener...')
-              setupPartnerUploadListener()
-            }, 5000)
-          }
-        )
-
-        partnerUploadListenerRef.current = unsubscribe
-        console.log('✅ [HOME] Partner upload listener active')
-      } catch (error) {
-        console.error('❌ [HOME] Failed to setup partner upload listener:', error)
-      }
-    }, 1000) // Delay aggiuntivo di 1 secondo per sicurezza
-  }
-
-  // Mostra notifica quando il partner carica una foto
-  const showPartnerUploadNotification = async () => {
-    // Verifica permessi notifiche
-    if (!('Notification' in window)) {
-      console.warn('⚠️ [NOTIFICATIONS] Browser does not support notifications')
-      return
-    }
-
-    if (Notification.permission === 'default') {
-      const permission = await Notification.requestPermission()
-      if (permission !== 'granted') {
-        console.warn('⚠️ [NOTIFICATIONS] Permission denied')
-        return
-      }
-    }
-
-    if (Notification.permission === 'granted') {
-      // Se il service worker è disponibile, usalo per mostrare la notifica
-      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({
-          type: 'SHOW_NOTIFICATION',
-          title: 'Nuova foto dal partner! 💕',
-          options: {
-            body: 'Il tuo partner ha caricato una nuova foto. Apri l\'app per vederla!',
-            icon: '/favicon.svg',
-            badge: '/favicon.svg',
-            tag: 'partner-upload',
-            requireInteraction: false,
-            vibrate: [200, 100, 200]
-          }
-        })
-      } else {
-        // Fallback: usa Notification API direttamente
-        new Notification('Nuova foto dal partner! 💕', {
-          body: 'Il tuo partner ha caricato una nuova foto. Apri l\'app per vederla!',
-          icon: '/favicon.svg',
-          badge: '/favicon.svg',
-          tag: 'partner-upload'
-        })
-      }
     }
   }
 
