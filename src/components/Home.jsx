@@ -69,6 +69,21 @@ export default function Home({ user }) {
     console.log('📅 [HOME] Date ID:', todayId)
 
     try {
+      // Enable network once at the start to avoid multiple calls causing state issues
+      console.log('🔧 [HOME] Ensuring network is enabled...')
+      try {
+        await enableNetwork(db)
+        console.log('✅ [HOME] Network enabled')
+      } catch (networkError) {
+        // Ignora errori "already-exists" - sono errori interni di Firestore non critici
+        if (networkError.code !== 'already-exists') {
+          console.warn('⚠️ [HOME] enableNetwork() error (continuing anyway):', networkError)
+        }
+      }
+      
+      // Small delay to let Firestore stabilize after enabling network
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
       // Load daily theme and memory - NO TIMEOUT, solo log dettagliati
       console.log('📖 [HOME] ===== STARTING DAILY POST FETCH =====')
       console.log('📖 [HOME] Looking for document ID:', todayId)
@@ -80,18 +95,7 @@ export default function Home({ user }) {
       
       try {
         console.log('📖 [HOME] ===== FETCHING ALL DAILY POSTS =====')
-        console.log('📖 [HOME] Step 1: Ensuring network is enabled...')
-        try {
-          await enableNetwork(db)
-          console.log('✅ [HOME] Network enabled for collection query')
-        } catch (networkError) {
-          // Ignora errori "already-exists" - sono errori interni di Firestore non critici
-          if (networkError.code !== 'already-exists') {
-            console.warn('⚠️ [HOME] enableNetwork() error (continuing anyway):', networkError)
-          }
-        }
-        
-        console.log('📖 [HOME] Step 2: Creating collection reference...')
+        console.log('📖 [HOME] Step 1: Creating collection reference...')
         const dailyPostsRef = collection(db, 'daily_posts')
         console.log('📖 [HOME] Collection reference created:', dailyPostsRef.path)
         console.log('📖 [HOME] Collection ID:', dailyPostsRef.id)
@@ -99,7 +103,7 @@ export default function Home({ user }) {
         console.log('📖 [HOME] Database project ID:', db.app.options.projectId)
         console.log('📖 [HOME] Database app name:', db.app.name)
         
-        console.log('📖 [HOME] Step 3: Calling getDocs() (cache + server)...')
+        console.log('📖 [HOME] Step 2: Calling getDocs() (cache + server)...')
         const startTime = Date.now()
         // Usa getDocs() normale che prova cache e poi server
         // Aggiungi un timeout per evitare di aspettare troppo
@@ -117,7 +121,7 @@ export default function Home({ user }) {
           isFromCache: allDocs.metadata.fromCache
         })
         
-        console.log('📦 [HOME] Step 4: Processing documents...')
+        console.log('📦 [HOME] Step 3: Processing documents...')
         console.log('📦 [HOME] Total documents fetched:', allDocs.size)
         console.log('📦 [HOME] Document IDs:', allDocs.docs.map(d => d.id))
         console.log('📦 [HOME] Empty collection?', allDocs.empty)
@@ -185,84 +189,117 @@ export default function Home({ user }) {
       console.log('🏁 [HOME] ===== DAILY POST FETCH COMPLETED =====')
       console.log('🏁 [HOME] Final status - Found:', dailyPostFound)
 
-      // Load uploads for today - NO TIMEOUT, solo log dettagliati
+      // Load uploads for today - with retry logic to handle Firestore internal errors
       console.log('📸 [HOME] ===== STARTING UPLOADS FETCH =====')
       console.log('📸 [HOME] Looking for uploads with date_id:', todayId)
       let myUploadData = null
       let partnerUploadData = null
       
-      try {
-        console.log('📸 [HOME] Step 1: Ensuring network is enabled...')
-        try {
-          await enableNetwork(db)
-          console.log('✅ [HOME] Network enabled for uploads query')
-        } catch (networkError) {
-          // Ignora errori "already-exists" - sono errori interni di Firestore non critici
-          if (networkError.code !== 'already-exists') {
-            console.warn('⚠️ [HOME] enableNetwork() error (continuing anyway):', networkError)
+      // Retry function to handle Firestore internal assertion errors
+      const fetchUploadsWithRetry = async (maxRetries = 3) => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            console.log(`📸 [HOME] Attempt ${attempt}/${maxRetries} to fetch uploads...`)
+            
+            // Wait for pending writes to complete before querying
+            try {
+              await waitForPendingWrites(db)
+              console.log('✅ [HOME] Pending writes completed')
+            } catch (waitError) {
+              // Ignore wait errors - not critical
+              console.log('ℹ️ [HOME] waitForPendingWrites completed (or skipped)')
+            }
+            
+            // Small delay to let Firestore stabilize after previous operations
+            if (attempt > 1) {
+              const delay = Math.min(200 * attempt, 1000) // Exponential backoff, max 1s
+              console.log(`⏳ [HOME] Waiting ${delay}ms before retry...`)
+              await new Promise(resolve => setTimeout(resolve, delay))
+            }
+            
+            console.log('📸 [HOME] Step 1: Creating collection reference...')
+            const uploadsRef = collection(db, 'uploads')
+            console.log('📸 [HOME] Collection reference created:', uploadsRef.path)
+            
+            console.log('📸 [HOME] Step 2: Creating query...')
+            const q = query(uploadsRef, where('date_id', '==', todayId))
+            console.log('📸 [HOME] Query created')
+            
+            console.log('📸 [HOME] Step 3: Calling getDocs() with query (cache + server)...')
+            const startTime = Date.now()
+            const querySnapshot = await getDocs(q)
+            const endTime = Date.now()
+            console.log(`⏱️ [HOME] getDocs() completed in ${endTime - startTime}ms`)
+            console.log('📸 [HOME] Query source:', querySnapshot.metadata.fromCache ? 'cache' : 'server')
+
+            console.log('📸 [HOME] Step 4: Processing uploads...')
+            console.log('📸 [HOME] Total uploads found:', querySnapshot.size)
+
+            querySnapshot.forEach((docSnap) => {
+              const data = docSnap.data()
+              console.log('📸 [HOME] Found upload:', {
+                doc_id: docSnap.id,
+                user_id: data.user_id,
+                current_user_id: user.uid,
+                isMine: data.user_id === user.uid,
+                hasImage: !!data.image_url,
+                date_id: data.date_id,
+                allFields: Object.keys(data)
+              })
+              if (data.user_id === user.uid) {
+                myUploadData = data
+                console.log('📸 [HOME] This is MY upload')
+              } else {
+                partnerUploadData = data
+                console.log('📸 [HOME] This is PARTNER upload')
+              }
+            })
+
+            console.log('✅ [HOME] ===== UPLOADS FETCH COMPLETED =====')
+            console.log('✅ [HOME] Final uploads status:', {
+              myUpload: !!myUploadData,
+              partnerUpload: !!partnerUploadData,
+              canSeePartner: !!(myUploadData && myUploadData.image_url)
+            })
+            
+            // Success - return early
+            return
+          } catch (error) {
+            const isInternalError = error.message?.includes('INTERNAL ASSERTION') || 
+                                   error.message?.includes('Unexpected state') ||
+                                   error.code === 'already-exists'
+            
+            if (isInternalError && attempt < maxRetries) {
+              console.warn(`⚠️ [HOME] Firestore internal error on attempt ${attempt}, retrying...`)
+              console.warn(`⚠️ [HOME] Error: ${error.message}`)
+              // Continue to next retry
+              continue
+            } else if (isInternalError) {
+              // Last attempt failed with internal error - log but don't throw
+              console.error('❌ [HOME] ===== ERROR IN UPLOADS FETCH (after retries) =====')
+              console.error('❌ [HOME] Error name:', error.name)
+              console.error('❌ [HOME] Error message:', error.message)
+              console.error('❌ [HOME] Error code:', error.code)
+              console.warn('⚠️ [HOME] Continuing without uploads data due to Firestore internal error')
+              return // Exit gracefully
+            } else {
+              // Non-internal error - throw immediately
+              throw error
+            }
           }
         }
-        
-        console.log('📸 [HOME] Step 2: Creating collection reference...')
-        const uploadsRef = collection(db, 'uploads')
-        console.log('📸 [HOME] Collection reference created:', uploadsRef.path)
-        
-        console.log('📸 [HOME] Step 3: Creating query...')
-        const q = query(uploadsRef, where('date_id', '==', todayId))
-        console.log('📸 [HOME] Query created')
-        
-        console.log('📸 [HOME] Step 4: Calling getDocs() with query (cache + server)...')
-        const startTime = Date.now()
-        // Usa getDocs() normale che prova cache e poi server
-        const querySnapshot = await getDocs(q)
-        const endTime = Date.now()
-        console.log(`⏱️ [HOME] getDocs() completed in ${endTime - startTime}ms`)
-        console.log('📸 [HOME] Query source:', querySnapshot.metadata.fromCache ? 'cache' : 'server')
-
-        console.log('📸 [HOME] Step 4: Processing uploads...')
-        console.log('📸 [HOME] Total uploads found:', querySnapshot.size)
-
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data()
-        console.log('📸 [HOME] Found upload:', {
-            doc_id: docSnap.id,
-          user_id: data.user_id,
-            current_user_id: user.uid,
-          isMine: data.user_id === user.uid,
-            hasImage: !!data.image_url,
-            date_id: data.date_id,
-            allFields: Object.keys(data)
-        })
-        if (data.user_id === user.uid) {
-          myUploadData = data
-            console.log('📸 [HOME] This is MY upload')
-        } else {
-          partnerUploadData = data
-            console.log('📸 [HOME] This is PARTNER upload')
-        }
-      })
-
-        console.log('✅ [HOME] ===== UPLOADS FETCH COMPLETED =====')
-        console.log('✅ [HOME] Final uploads status:', {
-        myUpload: !!myUploadData,
-        partnerUpload: !!partnerUploadData,
-        canSeePartner: !!(myUploadData && myUploadData.image_url)
-      })
+      }
+      
+      try {
+        await fetchUploadsWithRetry()
       } catch (error) {
-        // Ignora errori "already-exists" - sono errori interni di Firestore non critici
-        if (error.code === 'already-exists') {
-          console.warn('⚠️ [HOME] Ignoring internal Firestore error (already-exists) - this is harmless')
-          // Continua normalmente, la query può comunque funzionare
-        } else {
-          console.error('❌ [HOME] ===== ERROR IN UPLOADS FETCH =====')
-          console.error('❌ [HOME] Error name:', error.name)
-          console.error('❌ [HOME] Error message:', error.message)
-          console.error('❌ [HOME] Error code:', error.code)
-          console.error('❌ [HOME] Error stack:', error.stack)
-          console.error('❌ [HOME] Full error object:', error)
-          console.warn('⚠️ [HOME] Continuing without uploads data')
-          // Continua con valori null, l'app funzionerà comunque
-        }
+        console.error('❌ [HOME] ===== ERROR IN UPLOADS FETCH =====')
+        console.error('❌ [HOME] Error name:', error.name)
+        console.error('❌ [HOME] Error message:', error.message)
+        console.error('❌ [HOME] Error code:', error.code)
+        console.error('❌ [HOME] Error stack:', error.stack)
+        console.warn('⚠️ [HOME] Continuing without uploads data')
+        // Continua con valori null, l'app funzionerà comunque
       }
 
       setMyUpload(myUploadData)
