@@ -16,7 +16,7 @@ import PhotoUpload from './PhotoUpload'
 import PartnerPhoto from './PartnerPhoto'
 
 export default function Home({ user }) {
-  const [dailyPosts, setDailyPosts] = useState([]) // Array di oggetti { date_id, theme_text, memory_image_url }
+  const [dailyPosts, setDailyPosts] = useState([])
   const [myUpload, setMyUpload] = useState(null)
   const [partnerUpload, setPartnerUpload] = useState(null)
   const [dateId, setDateId] = useState('')
@@ -26,8 +26,6 @@ export default function Home({ user }) {
 
   useEffect(() => {
     loadDailyData()
-    // NO TIMEOUT - lascia che le query completino naturalmente
-    // Il loading spinner resterà attivo finché loadDailyData() non completa
   }, [user])
 
   const loadDailyData = async () => {
@@ -41,23 +39,7 @@ export default function Home({ user }) {
 
     console.log('📅 [HOME] Loading daily data...')
     console.log('👤 [HOME] User:', { uid: user.uid, email: user.email })
-    console.log('🔧 [HOME] Firebase Config Check:')
-    console.log('🔧 [HOME] - Project ID:', db.app.options.projectId)
-    console.log('🔧 [HOME] - Auth Domain:', db.app.options.authDomain)
-    console.log('🔧 [HOME] - Database URL:', db.app.options.databaseURL || 'N/A')
-    console.log('🔧 [HOME] - App Name:', db.app.name)
     
-    // Verifica importante: controlla se l'utente ha un token valido
-    try {
-      const token = await auth.currentUser?.getIdToken()
-      console.log('🔧 [HOME] - User token exists:', !!token)
-      if (token) {
-        console.log('🔧 [HOME] - Token preview:', token.substring(0, 20) + '...')
-      }
-    } catch (tokenError) {
-      console.error('❌ [HOME] Error getting user token:', tokenError)
-    }
-
     // Reset states
     setError(null)
     setLoading(true)
@@ -69,87 +51,37 @@ export default function Home({ user }) {
     console.log('📅 [HOME] Date ID:', todayId)
 
     try {
-      // Enable network once at the start to avoid multiple calls causing state issues
+      // Enable network once at the start
       console.log('🔧 [HOME] Ensuring network is enabled...')
       try {
         await enableNetwork(db)
         console.log('✅ [HOME] Network enabled')
       } catch (networkError) {
-        // Ignora errori "already-exists" - sono errori interni di Firestore non critici
         if (networkError.code !== 'already-exists') {
           console.warn('⚠️ [HOME] enableNetwork() error (continuing anyway):', networkError)
         }
       }
       
-      // Small delay to let Firestore stabilize after enabling network
       await new Promise(resolve => setTimeout(resolve, 100))
       
-      // Load daily theme and memory - NO TIMEOUT, solo log dettagliati
+      // Load daily posts
       console.log('📖 [HOME] ===== STARTING DAILY POST FETCH =====')
-      console.log('📖 [HOME] Looking for document ID:', todayId)
-      console.log('📖 [HOME] User authenticated:', !!user, user?.uid)
-      console.log('📖 [HOME] DB instance:', db)
-      
-      // Carica tutti i documenti fino alla data odierna
       let dailyPostFound = false
       
       try {
-        console.log('📖 [HOME] ===== FETCHING ALL DAILY POSTS =====')
-        console.log('📖 [HOME] Step 1: Creating collection reference...')
         const dailyPostsRef = collection(db, 'daily_posts')
-        console.log('📖 [HOME] Collection reference created:', dailyPostsRef.path)
-        console.log('📖 [HOME] Collection ID:', dailyPostsRef.id)
-        console.log('📖 [HOME] Collection path:', dailyPostsRef.path)
-        console.log('📖 [HOME] Database project ID:', db.app.options.projectId)
-        console.log('📖 [HOME] Database app name:', db.app.name)
-        
-        console.log('📖 [HOME] Step 2: Calling getDocs() (cache + server)...')
-        const startTime = Date.now()
-        // Usa getDocs() normale che prova cache e poi server
-        // Aggiungi un timeout per evitare di aspettare troppo
         const getDocsPromise = getDocs(dailyPostsRef)
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('getDocs timeout after 20 seconds')), 20000)
         )
         
         const allDocs = await Promise.race([getDocsPromise, timeoutPromise])
-        const endTime = Date.now()
-        console.log(`⏱️ [HOME] getDocs() completed in ${endTime - startTime}ms`)
-        console.log('📖 [HOME] Query source:', allDocs.metadata.fromCache ? 'cache' : 'server')
-        console.log('📖 [HOME] Query metadata:', {
-          hasPendingWrites: allDocs.metadata.hasPendingWrites,
-          isFromCache: allDocs.metadata.fromCache
-        })
         
-        console.log('📦 [HOME] Step 3: Processing documents...')
-        console.log('📦 [HOME] Total documents fetched:', allDocs.size)
-        console.log('📦 [HOME] Document IDs:', allDocs.docs.map(d => d.id))
-        console.log('📦 [HOME] Empty collection?', allDocs.empty)
-        
-        // Log dettagliato se la collezione è vuota
-        if (allDocs.empty) {
-          console.warn('⚠️ [HOME] Collection is EMPTY!')
-          console.warn('⚠️ [HOME] Possible reasons:')
-          console.warn('⚠️ [HOME] 1. Document was created in a different Firebase project')
-          console.warn('⚠️ [HOME] 2. Firestore rules are blocking read access')
-          console.warn('⚠️ [HOME] 3. Collection name is wrong (expected: daily_posts)')
-          console.warn('⚠️ [HOME] 4. Database is in a different region')
-        }
-        
-        // Filtra i documenti con Document ID <= todayId e ordina (dal più vecchio al più recente)
         const validDocs = allDocs.docs
-          .filter(doc => {
-            const isValid = doc.id <= todayId
-            console.log(`📋 [HOME] Document ${doc.id} <= ${todayId}? ${isValid}`)
-            return isValid
-          })
-          .sort((a, b) => a.id.localeCompare(b.id)) // Ordine crescente (dal più vecchio al più recente)
-        
-        console.log('📋 [HOME] Valid documents (<= today):', validDocs.length)
-        console.log('📋 [HOME] Valid document IDs:', validDocs.map(d => d.id))
+          .filter(doc => doc.id <= todayId)
+          .sort((a, b) => a.id.localeCompare(b.id))
         
         if (validDocs.length > 0) {
-          // Converti tutti i documenti validi in un array
           const posts = validDocs.map(doc => ({
             date_id: doc.id,
             theme_text: doc.data().theme_text || 'Nessun messaggio per oggi',
@@ -157,112 +89,53 @@ export default function Home({ user }) {
           }))
           setDailyPosts(posts)
           dailyPostFound = true
-          console.log(`✅ [HOME] Found ${posts.length} daily posts to display`)
-          console.log('✅ [HOME] Posts:', posts.map(p => p.date_id))
         } else {
-          console.log('ℹ️ [HOME] No valid documents found (no posts <= today)')
           setDailyPosts([])
         }
       } catch (error) {
-          console.error('❌ [HOME] ===== ERROR IN getDocs() =====')
-          console.error('❌ [HOME] Error name:', error.name)
-          console.error('❌ [HOME] Error message:', error.message)
-          console.error('❌ [HOME] Error code:', error.code)
-          console.error('❌ [HOME] Error stack:', error.stack)
-          console.error('❌ [HOME] Full error object:', error)
-          if (error.code === 'permission-denied') {
-            console.warn('⚠️ [HOME] Permission denied - check Firestore rules')
-            setError('Permessi insufficienti. Verifica le regole di Firestore. Le regole devono permettere la lettura per utenti autenticati.')
-          } else if (error.code === 'unavailable' || error.message?.includes('offline')) {
-            console.error('❌ [HOME] Firestore connection error - client appears offline')
-            console.error('❌ [HOME] This usually means:')
-            console.error('❌ [HOME] 1. Firestore rules are blocking access (most likely)')
-            console.error('❌ [HOME] 2. Network connectivity issue')
-            console.error('❌ [HOME] 3. Firestore database not initialized in Firebase Console')
-            setError('Impossibile connettersi a Firestore. Verifica: 1) Le regole Firestore permettono lettura per utenti autenticati? 2) Il database Firestore è stato creato in Firebase Console?')
-          }
-          if (!dailyPostFound) {
-            setDailyPosts([])
-          }
+        console.error('❌ [HOME] Error in getDocs():', error)
+        if (error.code === 'permission-denied') {
+          setError('Permessi insufficienti. Verifica le regole di Firestore.')
+        } else if (error.code === 'unavailable' || error.message?.includes('offline')) {
+          setError('Impossibile connettersi a Firestore. Verifica la connessione.')
         }
-      
-      console.log('🏁 [HOME] ===== DAILY POST FETCH COMPLETED =====')
-      console.log('🏁 [HOME] Final status - Found:', dailyPostFound)
+        if (!dailyPostFound) {
+          setDailyPosts([])
+        }
+      }
 
-      // Load uploads for today - with retry logic to handle Firestore internal errors
+      // Load uploads
       console.log('📸 [HOME] ===== STARTING UPLOADS FETCH =====')
-      console.log('📸 [HOME] Looking for uploads with date_id:', todayId)
       let myUploadData = null
       let partnerUploadData = null
       
-      // Retry function to handle Firestore internal assertion errors
       const fetchUploadsWithRetry = async (maxRetries = 3) => {
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-            console.log(`📸 [HOME] Attempt ${attempt}/${maxRetries} to fetch uploads...`)
-            
-            // Wait for pending writes to complete before querying
-        try {
+          try {
+            try {
               await waitForPendingWrites(db)
-              console.log('✅ [HOME] Pending writes completed')
             } catch (waitError) {
-              // Ignore wait errors - not critical
-              console.log('ℹ️ [HOME] waitForPendingWrites completed (or skipped)')
+              // Ignore
             }
             
-            // Small delay to let Firestore stabilize after previous operations
             if (attempt > 1) {
-              const delay = Math.min(200 * attempt, 1000) // Exponential backoff, max 1s
-              console.log(`⏳ [HOME] Waiting ${delay}ms before retry...`)
+              const delay = Math.min(200 * attempt, 1000)
               await new Promise(resolve => setTimeout(resolve, delay))
-        }
-        
-            console.log('📸 [HOME] Step 1: Creating collection reference...')
-        const uploadsRef = collection(db, 'uploads')
-        console.log('📸 [HOME] Collection reference created:', uploadsRef.path)
-        
-            console.log('📸 [HOME] Step 2: Creating query...')
-        const q = query(uploadsRef, where('date_id', '==', todayId))
-        console.log('📸 [HOME] Query created')
-        
-            console.log('📸 [HOME] Step 3: Calling getDocs() with query (cache + server)...')
-        const startTime = Date.now()
-        const querySnapshot = await getDocs(q)
-        const endTime = Date.now()
-        console.log(`⏱️ [HOME] getDocs() completed in ${endTime - startTime}ms`)
-        console.log('📸 [HOME] Query source:', querySnapshot.metadata.fromCache ? 'cache' : 'server')
-
-        console.log('📸 [HOME] Step 4: Processing uploads...')
-        console.log('📸 [HOME] Total uploads found:', querySnapshot.size)
-
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data()
-        console.log('📸 [HOME] Found upload:', {
-            doc_id: docSnap.id,
-          user_id: data.user_id,
-            current_user_id: user.uid,
-          isMine: data.user_id === user.uid,
-            hasImage: !!data.image_url,
-            date_id: data.date_id,
-            allFields: Object.keys(data)
-        })
-        if (data.user_id === user.uid) {
-          myUploadData = data
-            console.log('📸 [HOME] This is MY upload')
-        } else {
-          partnerUploadData = data
-            console.log('📸 [HOME] This is PARTNER upload')
-        }
-      })
-
-        console.log('✅ [HOME] ===== UPLOADS FETCH COMPLETED =====')
-        console.log('✅ [HOME] Final uploads status:', {
-        myUpload: !!myUploadData,
-        partnerUpload: !!partnerUploadData,
-        canSeePartner: !!(myUploadData && myUploadData.image_url)
-      })
+            }
             
-            // Success - return early
+            const uploadsRef = collection(db, 'uploads')
+            const q = query(uploadsRef, where('date_id', '==', todayId))
+            const querySnapshot = await getDocs(q)
+
+            querySnapshot.forEach((docSnap) => {
+              const data = docSnap.data()
+              if (data.user_id === user.uid) {
+                myUploadData = data
+              } else {
+                partnerUploadData = data
+              }
+            })
+            
             return
           } catch (error) {
             const isInternalError = error.message?.includes('INTERNAL ASSERTION') || 
@@ -270,20 +143,10 @@ export default function Home({ user }) {
                                    error.code === 'already-exists'
             
             if (isInternalError && attempt < maxRetries) {
-              console.warn(`⚠️ [HOME] Firestore internal error on attempt ${attempt}, retrying...`)
-              console.warn(`⚠️ [HOME] Error: ${error.message}`)
-              // Continue to next retry
               continue
             } else if (isInternalError) {
-              // Last attempt failed with internal error - log but don't throw
-              console.error('❌ [HOME] ===== ERROR IN UPLOADS FETCH (after retries) =====')
-              console.error('❌ [HOME] Error name:', error.name)
-              console.error('❌ [HOME] Error message:', error.message)
-              console.error('❌ [HOME] Error code:', error.code)
-              console.warn('⚠️ [HOME] Continuing without uploads data due to Firestore internal error')
-              return // Exit gracefully
+              return
             } else {
-              // Non-internal error - throw immediately
               throw error
             }
           }
@@ -293,13 +156,7 @@ export default function Home({ user }) {
       try {
         await fetchUploadsWithRetry()
       } catch (error) {
-          console.error('❌ [HOME] ===== ERROR IN UPLOADS FETCH =====')
-          console.error('❌ [HOME] Error name:', error.name)
-          console.error('❌ [HOME] Error message:', error.message)
-          console.error('❌ [HOME] Error code:', error.code)
-          console.error('❌ [HOME] Error stack:', error.stack)
-          console.warn('⚠️ [HOME] Continuing without uploads data')
-          // Continua con valori null, l'app funzionerà comunque
+        console.error('❌ [HOME] Error in uploads fetch:', error)
       }
 
       setMyUpload(myUploadData)
@@ -309,10 +166,6 @@ export default function Home({ user }) {
       console.log('🏁 [HOME] Data loading completed successfully')
     } catch (error) {
       console.error('❌ [HOME] Error loading data:', error)
-      console.error('❌ [HOME] Error details:', {
-        code: error.code,
-        message: error.message
-      })
       setError(error.message || 'Impossibile caricare i dati del giorno. Riprova più tardi.')
       setLoading(false)
       setDataLoaded(false)
@@ -332,24 +185,27 @@ export default function Home({ user }) {
 
   const canSeePartnerPhoto = myUpload && myUpload.image_url
 
-  // Show loading spinner while fetching
+  // Show loading video while fetching
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-pink-50/30">
-        <div className="text-center">
-          <div className="relative inline-block">
-            <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-200"></div>
-            <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-pink-600 absolute top-0 left-0"></div>
-          </div>
-          <p className="text-gray-900 font-medium text-base mt-4">Caricamento dati...</p>
-          <p className="text-gray-500 text-sm mt-1">Attendere prego...</p>
+      <div className="min-h-screen relative overflow-hidden">
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+        >
+          <source src="/single-heart.mp4" type="video/mp4" />
+        </video>
+        <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+          <p className="text-white font-medium text-lg">Caricamento dati...</p>
         </div>
       </div>
     )
   }
 
-  // If there's an error or data wasn't loaded successfully, don't show the home page
-  // Show error screen instead
+  // Error screen
   if (error || !dataLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-gray-50 via-white to-pink-50/30">
@@ -379,114 +235,124 @@ export default function Home({ user }) {
     )
   }
 
+  const todayPost = dailyPosts.find(post => post.date_id === dateId)
+  const pastPosts = dailyPosts.filter(post => post.date_id < dateId).sort((a, b) => b.date_id.localeCompare(a.date_id))
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-pink-50/30">
-      {/* Header */}
-      <div className="bg-white/80 backdrop-blur-md sticky top-0 z-20 border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">
-            MyBubiAPP
-          </h1>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-pink-50/20 to-rose-50/30">
+      {/* Elegant Header */}
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/70 border-b border-gray-200/50 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+                MyBubiAPP
+              </h1>
+              <p className="text-xs text-gray-500">I nostri momenti speciali</p>
             </div>
-          <button
-            onClick={handleLogout}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            Esci
-          </button>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100/80 rounded-lg transition-all duration-200 backdrop-blur-sm"
+            >
+              Esci
+            </button>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        {/* Grid Layout for better organization */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Column - Daily Posts */}
-          <div className="space-y-6">
-            {(() => {
-              const todayPost = dailyPosts.find(post => post.date_id === dateId)
-              const pastPosts = dailyPosts.filter(post => post.date_id < dateId).sort((a, b) => b.date_id.localeCompare(a.date_id)) // Ordine decrescente (dal più recente al più vecchio)
-              
-              return (
-                <>
-                  {/* Memoria del Giorno - solo quella di oggi */}
-                  {todayPost?.memory_image_url && (
-                    <DailyMemory 
-                      memoryImage={todayPost.memory_image_url} 
-                      dateId={todayPost.date_id} 
-                      themeText={todayPost.theme_text}
-                    />
-                  )}
-                  
-                  {/* Tutti i Ricordi - tutte le memorie passate */}
-                  {pastPosts.length > 0 && (
-                    <div className="bg-purple-300 rounded-2xl shadow-sm border border-purple-400 p-6">
-                      <h2 className="text-xl font-semibold text-gray-900 mb-4">Tutti i Ricordi</h2>
-                      <div className="space-y-6">
-                        {pastPosts.map((post) => (
-                          post.memory_image_url && (
-                            <DailyMemory key={post.date_id} memoryImage={post.memory_image_url} dateId={post.date_id} />
-                          )
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )
-            })()}
-          </div>
-
-          {/* Right Column - User Actions */}
-          <div className="space-y-6">
-        {/* Show my uploaded photo if exists */}
-        {myUpload?.image_url && (
-              <div className="bg-sky-300 rounded-2xl shadow-sm border border-sky-400 p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    La Tua Foto di Oggi
-            </h2>
-                </div>
-                <div className="space-y-4">
-                  <div className="relative rounded-xl overflow-hidden aspect-video bg-gray-100">
-                <img 
-                  src={myUpload.image_url} 
-                  alt="My upload" 
-                      className="w-full h-full object-cover" 
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+          
+          {/* Left Column - Memories */}
+          <div className="lg:col-span-2 space-y-6 lg:space-y-8">
+            {/* Today's Memory */}
+            {todayPost?.memory_image_url && (
+              <div className="group">
+                <DailyMemory 
+                  memoryImage={todayPost.memory_image_url} 
+                  dateId={todayPost.date_id} 
+                  themeText={todayPost.theme_text}
                 />
               </div>
-              {myUpload.caption && (
-                    <div className="bg-white/80 rounded-lg p-4 border-l-4 border-sky-400">
-                      <p className="text-gray-700 text-sm leading-relaxed">
-                  {myUpload.caption}
-                </p>
+            )}
+
+            {/* Past Memories */}
+            {pastPosts.length > 0 && (
+              <div className="space-y-6">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-gray-300 to-transparent"></div>
+                  <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Ricordi Passati</h2>
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-gray-300 to-transparent"></div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {pastPosts.map((post) => (
+                    post.memory_image_url && (
+                      <DailyMemory 
+                        key={post.date_id} 
+                        memoryImage={post.memory_image_url} 
+                        dateId={post.date_id}
+                        compact={true}
+                      />
+                    )
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right Column - Today's Actions */}
+          <div className="space-y-6 lg:space-y-8">
+            {/* My Upload */}
+            {myUpload?.image_url ? (
+              <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl border border-gray-200/50 overflow-hidden transition-all duration-300 hover:shadow-2xl">
+                <div className="p-6 border-b border-gray-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-cyan-500 flex items-center justify-center shadow-md">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
                     </div>
-              )}
-              {myUpload.timestamp && (
-                    <p className="text-xs text-gray-500 flex items-center gap-2">
+                    <div>
+                      <h3 className="font-semibold text-gray-900">La Tua Foto</h3>
+                      <p className="text-xs text-gray-500">Oggi</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div className="relative rounded-xl overflow-hidden aspect-video bg-gradient-to-br from-gray-100 to-gray-200 shadow-inner">
+                    <img 
+                      src={myUpload.image_url} 
+                      alt="My upload" 
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  {myUpload.caption && (
+                    <div className="bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl p-4 border-l-4 border-blue-400">
+                      <p className="text-gray-700 text-sm leading-relaxed">
+                        {myUpload.caption}
+                      </p>
+                    </div>
+                  )}
+                  {myUpload.timestamp && (
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                  Caricata alle {myUpload.timestamp.toDate ? myUpload.timestamp.toDate().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : ''}
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Photo Upload Component (only show if not uploaded yet) */}
-        {!myUpload?.image_url && (
-          <PhotoUpload user={user} dateId={dateId} onUploadComplete={loadDailyData} />
-        )}
+                      <span>Caricata alle {myUpload.timestamp.toDate ? myUpload.timestamp.toDate().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <PhotoUpload user={user} dateId={dateId} onUploadComplete={loadDailyData} />
+            )}
 
             {/* Partner Photo */}
-        <PartnerPhoto partnerUpload={partnerUpload} canSeePartnerPhoto={canSeePartnerPhoto} />
+            <PartnerPhoto partnerUpload={partnerUpload} canSeePartnerPhoto={canSeePartnerPhoto} />
           </div>
         </div>
-      </div>
+      </main>
     </div>
   )
 }
-
