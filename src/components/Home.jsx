@@ -315,7 +315,10 @@ export default function Home({ user }) {
       console.log('🏁 [HOME] Data loading completed successfully')
       
       // Salva il token FCM in Firestore per questo utente
-      saveFCMToken()
+      // TEMPORANEAMENTE DISABILITATO per verificare se causa conflitti con le query
+      // setTimeout(() => {
+      //   saveFCMToken()
+      // }, 2000)
       
       // Setup listener per monitorare nuovi upload del partner in tempo reale
       // TEMPORANEAMENTE DISABILITATO per evitare conflitti con getDocs()
