@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, enableNetwork, disableNetwork } from 'firebase/firestore';
+import { initializeFirestore, enableNetwork, memoryLocalCache } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 // TODO: Sostituisci con le tue credenziali Firebase
@@ -21,9 +21,15 @@ const app = initializeApp(firebaseConfig);
 // Inizializza i servizi
 export const auth = getAuth(app);
 
-// Inizializza Firestore - specifica il database ID (diverso dal project ID)
+// Inizializza Firestore - DISABILITATA PERSISTENZA OFFLINE (solo memoria)
+// Questo previene errori "INTERNAL ASSERTION FAILED" causati da cache IndexedDB corrotta
+// Usa memoryLocalCache() invece della persistenza su disco (IndexedDB)
+// Specifica anche il database ID (diverso dal project ID)
 // Il progetto è "mybubiiapp" ma il database Firestore si chiama "mybubiiapp2005"
-export const db = getFirestore(app, 'mybubiiapp2005');
+export const db = initializeFirestore(app, {
+  localCache: memoryLocalCache(),
+  databaseId: 'mybubiiapp2005'
+});
 
 // Forza la connessione online all'avvio
 console.log('🔧 [FIREBASE] Initializing Firestore connection...');
