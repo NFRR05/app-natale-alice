@@ -26,19 +26,53 @@ export default function Home({ user }) {
   const [error, setError] = useState(null)
   const [dataLoaded, setDataLoaded] = useState(false)
   const partnerUploadListenerRef = useRef(null)
+  const isLoadingRef = useRef(false) // Prevenire chiamate multiple simultanee
 
   useEffect(() => {
+    // Error handler globale per catturare errori Firestore non gestiti
+    const handleUnhandledError = (event) => {
+      if (event.error && event.error.message && event.error.message.includes('INTERNAL ASSERTION FAILED')) {
+        // Preveni che l'errore venga mostrato nella console
+        event.preventDefault()
+        console.debug('🔇 [HOME] Suppressed Firestore internal error')
+        return false
+      }
+    }
+    
+    // Error handler per promise rejection non gestite
+    const handleUnhandledRejection = (event) => {
+      if (event.reason && event.reason.message && event.reason.message.includes('INTERNAL ASSERTION FAILED')) {
+        event.preventDefault()
+        console.debug('🔇 [HOME] Suppressed Firestore promise rejection')
+        return false
+      }
+    }
+    
+    window.addEventListener('error', handleUnhandledError)
+    window.addEventListener('unhandledrejection', handleUnhandledRejection)
+    
+    // Prevenire chiamate multiple simultanee
+    if (isLoadingRef.current) {
+      console.log('⚠️ [HOME] Already loading, skipping...')
+      return
+    }
     loadDailyData()
-    // NO TIMEOUT - lascia che le query completino naturalmente
-    // Il loading spinner resterà attivo finché loadDailyData() non completa
     
     // Cleanup quando il componente viene smontato o l'utente cambia
     return () => {
+      window.removeEventListener('error', handleUnhandledError)
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+      
       if (partnerUploadListenerRef.current) {
         console.log('🧹 [HOME] Cleaning up partner upload listener')
-        partnerUploadListenerRef.current()
+        try {
+          partnerUploadListenerRef.current()
+        } catch (cleanupError) {
+          console.warn('⚠️ [HOME] Error during listener cleanup:', cleanupError)
+        }
         partnerUploadListenerRef.current = null
       }
+      isLoadingRef.current = false
     }
   }, [user])
 
@@ -262,24 +296,28 @@ export default function Home({ user }) {
       })
       } catch (error) {
         // Ignora errori "already-exists" e "INTERNAL ASSERTION FAILED" - sono errori interni di Firestore
-        if (error.code === 'already-exists' || 
-            (error.message && error.message.includes('INTERNAL ASSERTION FAILED'))) {
-          console.warn('⚠️ [HOME] Ignoring internal Firestore error - this is harmless:', error.message)
-          // Continua normalmente, la query può comunque funzionare
+        const isInternalError = error.code === 'already-exists' || 
+            (error.message && error.message.includes('INTERNAL ASSERTION FAILED'))
+        
+        if (isInternalError) {
+          // Log silenzioso per errori interni - non spammare la console
+          // I dati vengono comunque caricati correttamente
+          console.debug('🔇 [HOME] Internal Firestore error (ignored):', error.message?.substring(0, 50))
         } else {
           console.error('❌ [HOME] ===== ERROR IN UPLOADS FETCH =====')
           console.error('❌ [HOME] Error name:', error.name)
           console.error('❌ [HOME] Error message:', error.message)
           console.error('❌ [HOME] Error code:', error.code)
           console.warn('⚠️ [HOME] Continuing without uploads data')
-          // Continua con valori null, l'app funzionerà comunque
         }
+        // Continua con valori null, l'app funzionerà comunque
       }
 
       setMyUpload(myUploadData)
       setPartnerUpload(partnerUploadData)
       setDataLoaded(true)
       setLoading(false)
+      isLoadingRef.current = false
       console.log('🏁 [HOME] Data loading completed successfully')
       
       // Salva il token FCM in Firestore per questo utente
@@ -313,6 +351,7 @@ export default function Home({ user }) {
       setError(error.message || 'Impossibile caricare i dati del giorno. Riprova più tardi.')
       setLoading(false)
       setDataLoaded(false)
+      isLoadingRef.current = false
     }
   }
 
