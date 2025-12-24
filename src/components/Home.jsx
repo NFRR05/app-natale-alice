@@ -286,11 +286,25 @@ export default function Home({ user }) {
       // Salva il token FCM in Firestore per questo utente
       saveFCMToken()
       
-      // Salva il token FCM in Firestore per questo utente
-      saveFCMToken()
-      
       // Setup listener per monitorare nuovi upload del partner in tempo reale
-      setupPartnerUploadListener()
+      // IMPORTANTE: Ritarda significativamente per evitare conflitti con getDocs()
+      // L'errore "INTERNAL ASSERTION FAILED" si verifica quando onSnapshot() viene chiamato
+      // troppo vicino a getDocs() - Firestore ha bisogno di tempo per completare le operazioni
+      setTimeout(() => {
+        try {
+          setupPartnerUploadListener()
+        } catch (error) {
+          console.error('❌ [HOME] Error setting up partner listener:', error)
+          // Ritenta dopo altri 3 secondi se fallisce
+          setTimeout(() => {
+            try {
+              setupPartnerUploadListener()
+            } catch (retryError) {
+              console.error('❌ [HOME] Retry also failed:', retryError)
+            }
+          }, 3000)
+        }
+      }, 5000) // Delay di 5 secondi per evitare conflitti
     } catch (error) {
       console.error('❌ [HOME] Error loading data:', error)
       console.error('❌ [HOME] Error details:', {
@@ -337,50 +351,72 @@ export default function Home({ user }) {
 
   // Setup listener per monitorare nuovi upload del partner
   const setupPartnerUploadListener = () => {
-    if (!user || !dateId) return
+    if (!user || !dateId) {
+      console.log('⚠️ [HOME] Cannot setup listener - missing user or dateId', { user: !!user, dateId })
+      return
+    }
 
     console.log('👂 [HOME] Setting up partner upload listener...')
     
     // Cancella listener precedente se esiste
     if (partnerUploadListenerRef.current) {
       console.log('🧹 [HOME] Cleaning up previous listener')
-      partnerUploadListenerRef.current()
+      try {
+        partnerUploadListenerRef.current()
+      } catch (cleanupError) {
+        console.warn('⚠️ [HOME] Error cleaning up previous listener:', cleanupError)
+      }
       partnerUploadListenerRef.current = null
     }
 
-    try {
-      // Crea query per upload del partner di oggi
-      const uploadsRef = collection(db, 'uploads')
-      const q = query(
-        uploadsRef,
-        where('date_id', '==', dateId)
-      )
+    // Usa un piccolo delay aggiuntivo per assicurarsi che Firestore sia completamente pronto
+    setTimeout(() => {
+      try {
+        // Crea query per upload del partner di oggi
+        const uploadsRef = collection(db, 'uploads')
+        const q = query(
+          uploadsRef,
+          where('date_id', '==', dateId)
+        )
 
-      // Ascolta in tempo reale per nuovi documenti
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === 'added') {
-            const uploadData = change.doc.data()
-            const uploadUserId = uploadData.user_id
+        console.log('👂 [HOME] Creating onSnapshot listener...')
 
-            // Verifica se è un upload del partner (non dell'utente corrente)
-            if (uploadUserId && uploadUserId !== user.uid) {
-              console.log('🔔 [HOME] Partner uploaded a new photo!', uploadData)
-              
-              // Mostra notifica
-              showPartnerUploadNotification()
-            }
+        // Ascolta in tempo reale per nuovi documenti
+        const unsubscribe = onSnapshot(
+          q,
+          (snapshot) => {
+            console.log('👂 [HOME] Snapshot update received, checking for new uploads...')
+            snapshot.docChanges().forEach((change) => {
+              if (change.type === 'added') {
+                const uploadData = change.doc.data()
+                const uploadUserId = uploadData.user_id
+
+                // Verifica se è un upload del partner (non dell'utente corrente)
+                if (uploadUserId && uploadUserId !== user.uid) {
+                  console.log('🔔 [HOME] Partner uploaded a new photo!', uploadData)
+                  
+                  // Mostra notifica
+                  showPartnerUploadNotification()
+                }
+              }
+            })
+          },
+          (error) => {
+            console.error('❌ [HOME] Partner upload listener error:', error)
+            // Se c'è un errore, prova a riconnettere dopo 5 secondi
+            setTimeout(() => {
+              console.log('🔄 [HOME] Retrying partner upload listener...')
+              setupPartnerUploadListener()
+            }, 5000)
           }
-        })
-      }, (error) => {
-        console.error('❌ [HOME] Partner upload listener error:', error)
-      })
+        )
 
-      partnerUploadListenerRef.current = unsubscribe
-      console.log('✅ [HOME] Partner upload listener active')
-    } catch (error) {
-      console.error('❌ [HOME] Failed to setup partner upload listener:', error)
-    }
+        partnerUploadListenerRef.current = unsubscribe
+        console.log('✅ [HOME] Partner upload listener active')
+      } catch (error) {
+        console.error('❌ [HOME] Failed to setup partner upload listener:', error)
+      }
+    }, 1000) // Delay aggiuntivo di 1 secondo per sicurezza
   }
 
   // Mostra notifica quando il partner carica una foto
