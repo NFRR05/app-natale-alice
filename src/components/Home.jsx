@@ -261,17 +261,16 @@ export default function Home({ user }) {
         canSeePartner: !!(myUploadData && myUploadData.image_url)
       })
       } catch (error) {
-        // Ignora errori "already-exists" - sono errori interni di Firestore non critici
-        if (error.code === 'already-exists') {
-          console.warn('⚠️ [HOME] Ignoring internal Firestore error (already-exists) - this is harmless')
+        // Ignora errori "already-exists" e "INTERNAL ASSERTION FAILED" - sono errori interni di Firestore
+        if (error.code === 'already-exists' || 
+            (error.message && error.message.includes('INTERNAL ASSERTION FAILED'))) {
+          console.warn('⚠️ [HOME] Ignoring internal Firestore error - this is harmless:', error.message)
           // Continua normalmente, la query può comunque funzionare
         } else {
           console.error('❌ [HOME] ===== ERROR IN UPLOADS FETCH =====')
           console.error('❌ [HOME] Error name:', error.name)
           console.error('❌ [HOME] Error message:', error.message)
           console.error('❌ [HOME] Error code:', error.code)
-          console.error('❌ [HOME] Error stack:', error.stack)
-          console.error('❌ [HOME] Full error object:', error)
           console.warn('⚠️ [HOME] Continuing without uploads data')
           // Continua con valori null, l'app funzionerà comunque
         }
@@ -287,24 +286,24 @@ export default function Home({ user }) {
       saveFCMToken()
       
       // Setup listener per monitorare nuovi upload del partner in tempo reale
-      // IMPORTANTE: Ritarda significativamente per evitare conflitti con getDocs()
+      // TEMPORANEAMENTE DISABILITATO per evitare conflitti con getDocs()
       // L'errore "INTERNAL ASSERTION FAILED" si verifica quando onSnapshot() viene chiamato
-      // troppo vicino a getDocs() - Firestore ha bisogno di tempo per completare le operazioni
-      setTimeout(() => {
-        try {
-          setupPartnerUploadListener()
-        } catch (error) {
-          console.error('❌ [HOME] Error setting up partner listener:', error)
-          // Ritenta dopo altri 3 secondi se fallisce
-          setTimeout(() => {
-            try {
-              setupPartnerUploadListener()
-            } catch (retryError) {
-              console.error('❌ [HOME] Retry also failed:', retryError)
-            }
-          }, 3000)
-        }
-      }, 5000) // Delay di 5 secondi per evitare conflitti
+      // sulla stessa collezione dove abbiamo appena fatto getDocs()
+      // TODO: Riabilitare quando risolto il conflitto Firestore
+      // setTimeout(() => {
+      //   try {
+      //     setupPartnerUploadListener()
+      //   } catch (error) {
+      //     console.error('❌ [HOME] Error setting up partner listener:', error)
+      //     setTimeout(() => {
+      //       try {
+      //         setupPartnerUploadListener()
+      //       } catch (retryError) {
+      //         console.error('❌ [HOME] Retry also failed:', retryError)
+      //       }
+      //     }, 3000)
+      //   }
+      // }, 10000) // Delay molto lungo per evitare conflitti
     } catch (error) {
       console.error('❌ [HOME] Error loading data:', error)
       console.error('❌ [HOME] Error details:', {
