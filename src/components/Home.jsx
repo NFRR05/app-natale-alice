@@ -147,14 +147,8 @@ export default function Home({ user }) {
         
         console.log('📖 [HOME] Step 3: Calling getDocs() (cache + server)...')
         const startTime = Date.now()
-        // Usa getDocs() normale che prova cache e poi server
-        // Aggiungi un timeout per evitare di aspettare troppo
-        const getDocsPromise = getDocs(dailyPostsRef)
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('getDocs timeout after 20 seconds')), 20000)
-        )
-        
-        const allDocs = await Promise.race([getDocsPromise, timeoutPromise])
+        // Usa getDocs() normale che prova cache e poi server - NO TIMEOUT
+        const allDocs = await getDocs(dailyPostsRef)
         const endTime = Date.now()
         console.log(`⏱️ [HOME] getDocs() completed in ${endTime - startTime}ms`)
         console.log('📖 [HOME] Query source:', allDocs.metadata.fromCache ? 'cache' : 'server')
