@@ -185,6 +185,20 @@ export default function Home({ user }) {
       console.log('🏁 [HOME] ===== DAILY POST FETCH COMPLETED =====')
       console.log('🏁 [HOME] Final status - Found:', dailyPostFound)
 
+      // ASPETTA CHE TUTTE LE SCRITTURE PENDENTI SIANO COMPLETATE
+      // Questo aiuta a prevenire errori di stato interno di Firestore
+      try {
+        console.log('⏳ [HOME] Waiting for pending writes to complete...')
+        await waitForPendingWrites(db)
+        console.log('✅ [HOME] Pending writes completed')
+      } catch (waitError) {
+        // Ignora errori - non è critico
+        console.log('⚠️ [HOME] waitForPendingWrites error (continuing anyway):', waitError.message)
+      }
+
+      // AGGIUNGI UN BREVE DELAY PER PERMETTERE A FIRESTORE DI STABILIZZARSI
+      await new Promise(resolve => setTimeout(resolve, 100))
+
       // Load uploads for today - NO TIMEOUT, solo log dettagliati
       console.log('📸 [HOME] ===== STARTING UPLOADS FETCH =====')
       console.log('📸 [HOME] Looking for uploads with date_id:', todayId)
@@ -213,46 +227,71 @@ export default function Home({ user }) {
         
         console.log('📸 [HOME] Step 4: Calling getDocs() with query (cache + server)...')
         const startTime = Date.now()
-        // Usa getDocs() normale che prova cache e poi server
-        const querySnapshot = await getDocs(q)
+        
+        // AGGIUNGI RETRY LOGIC PER GESTIRE ERRORI INTERNI DI FIRESTORE
+        let querySnapshot
+        let retries = 0
+        const maxRetries = 3
+        while (retries <= maxRetries) {
+          try {
+            querySnapshot = await getDocs(q)
+            break // Successo, esci dal loop
+          } catch (queryError) {
+            if (queryError.message?.includes('INTERNAL ASSERTION FAILED') && retries < maxRetries) {
+              retries++
+              console.warn(`⚠️ [HOME] Firestore internal error, retry ${retries}/${maxRetries}...`)
+              // Aspetta prima di ritentare (backoff esponenziale)
+              await new Promise(resolve => setTimeout(resolve, 200 * retries))
+              continue
+            }
+            throw queryError // Rilancia se non è un errore interno o se abbiamo esaurito i retry
+          }
+        }
+        
         const endTime = Date.now()
         console.log(`⏱️ [HOME] getDocs() completed in ${endTime - startTime}ms`)
         console.log('📸 [HOME] Query source:', querySnapshot.metadata.fromCache ? 'cache' : 'server')
 
-        console.log('📸 [HOME] Step 4: Processing uploads...')
+        console.log('📸 [HOME] Step 5: Processing uploads...')
         console.log('📸 [HOME] Total uploads found:', querySnapshot.size)
 
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data()
-        console.log('📸 [HOME] Found upload:', {
+        querySnapshot.forEach((docSnap) => {
+          const data = docSnap.data()
+          console.log('📸 [HOME] Found upload:', {
             doc_id: docSnap.id,
-          user_id: data.user_id,
+            user_id: data.user_id,
             current_user_id: user.uid,
-          isMine: data.user_id === user.uid,
+            isMine: data.user_id === user.uid,
             hasImage: !!data.image_url,
             date_id: data.date_id,
             allFields: Object.keys(data)
-        })
-        if (data.user_id === user.uid) {
-          myUploadData = data
+          })
+          if (data.user_id === user.uid) {
+            myUploadData = data
             console.log('📸 [HOME] This is MY upload')
-        } else {
-          partnerUploadData = data
+          } else {
+            partnerUploadData = data
             console.log('📸 [HOME] This is PARTNER upload')
-        }
-      })
+          }
+        })
 
         console.log('✅ [HOME] ===== UPLOADS FETCH COMPLETED =====')
         console.log('✅ [HOME] Final uploads status:', {
-        myUpload: !!myUploadData,
-        partnerUpload: !!partnerUploadData,
-        canSeePartner: !!(myUploadData && myUploadData.image_url)
-      })
+          myUpload: !!myUploadData,
+          partnerUpload: !!partnerUploadData,
+          canSeePartner: !!(myUploadData && myUploadData.image_url)
+        })
       } catch (error) {
         // Ignora errori "already-exists" - sono errori interni di Firestore non critici
         if (error.code === 'already-exists') {
           console.warn('⚠️ [HOME] Ignoring internal Firestore error (already-exists) - this is harmless')
           // Continua normalmente, la query può comunque funzionare
+        } else if (error.message?.includes('INTERNAL ASSERTION FAILED')) {
+          console.error('❌ [HOME] ===== FIRESTORE INTERNAL ERROR (after retries) =====')
+          console.error('❌ [HOME] This is a known Firestore SDK bug when executing multiple queries in sequence')
+          console.error('❌ [HOME] The app will continue without uploads data for now')
+          console.error('❌ [HOME] Error details:', error.message)
+          // Continua con valori null - l'app funzionerà comunque
         } else {
           console.error('❌ [HOME] ===== ERROR IN UPLOADS FETCH =====')
           console.error('❌ [HOME] Error name:', error.name)
@@ -295,20 +334,9 @@ export default function Home({ user }) {
 
   const canSeePartnerPhoto = myUpload && myUpload.image_url
 
-  // Show loading spinner while fetching
+  // Non mostrare nulla durante il caricamento - lascia che App.jsx mostri il video
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-pink-50/30">
-        <div className="text-center">
-          <div className="relative inline-block">
-            <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-200"></div>
-            <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-pink-600 absolute top-0 left-0"></div>
-          </div>
-          <p className="text-gray-900 font-medium text-base mt-4">Caricamento dati...</p>
-          <p className="text-gray-500 text-sm mt-1">Attendere prego...</p>
-        </div>
-      </div>
-    )
+    return null
   }
 
   // If there's an error or data wasn't loaded successfully, don't show the home page
