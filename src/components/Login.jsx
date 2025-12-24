@@ -4,6 +4,7 @@ import { auth } from '../../firebaseConfig'
 
 const ALLOWED_EMAILS = [
   'riccardoremec05@gmail.com',
+  'riccardoremec@gmail.com',
   'alicebiancato5@gmail.com',
 ]
 

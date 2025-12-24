@@ -198,11 +198,11 @@ export default function Home({ user }) {
       // Retry function to handle Firestore internal assertion errors
       const fetchUploadsWithRetry = async (maxRetries = 3) => {
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
+      try {
             console.log(`📸 [HOME] Attempt ${attempt}/${maxRetries} to fetch uploads...`)
             
             // Wait for pending writes to complete before querying
-            try {
+        try {
               await waitForPendingWrites(db)
               console.log('✅ [HOME] Pending writes completed')
             } catch (waitError) {
@@ -215,52 +215,52 @@ export default function Home({ user }) {
               const delay = Math.min(200 * attempt, 1000) // Exponential backoff, max 1s
               console.log(`⏳ [HOME] Waiting ${delay}ms before retry...`)
               await new Promise(resolve => setTimeout(resolve, delay))
-            }
-            
+        }
+        
             console.log('📸 [HOME] Step 1: Creating collection reference...')
-            const uploadsRef = collection(db, 'uploads')
-            console.log('📸 [HOME] Collection reference created:', uploadsRef.path)
-            
+        const uploadsRef = collection(db, 'uploads')
+        console.log('📸 [HOME] Collection reference created:', uploadsRef.path)
+        
             console.log('📸 [HOME] Step 2: Creating query...')
-            const q = query(uploadsRef, where('date_id', '==', todayId))
-            console.log('📸 [HOME] Query created')
-            
+        const q = query(uploadsRef, where('date_id', '==', todayId))
+        console.log('📸 [HOME] Query created')
+        
             console.log('📸 [HOME] Step 3: Calling getDocs() with query (cache + server)...')
-            const startTime = Date.now()
-            const querySnapshot = await getDocs(q)
-            const endTime = Date.now()
-            console.log(`⏱️ [HOME] getDocs() completed in ${endTime - startTime}ms`)
-            console.log('📸 [HOME] Query source:', querySnapshot.metadata.fromCache ? 'cache' : 'server')
+        const startTime = Date.now()
+        const querySnapshot = await getDocs(q)
+        const endTime = Date.now()
+        console.log(`⏱️ [HOME] getDocs() completed in ${endTime - startTime}ms`)
+        console.log('📸 [HOME] Query source:', querySnapshot.metadata.fromCache ? 'cache' : 'server')
 
-            console.log('📸 [HOME] Step 4: Processing uploads...')
-            console.log('📸 [HOME] Total uploads found:', querySnapshot.size)
+        console.log('📸 [HOME] Step 4: Processing uploads...')
+        console.log('📸 [HOME] Total uploads found:', querySnapshot.size)
 
-            querySnapshot.forEach((docSnap) => {
-              const data = docSnap.data()
-              console.log('📸 [HOME] Found upload:', {
-                doc_id: docSnap.id,
-                user_id: data.user_id,
-                current_user_id: user.uid,
-                isMine: data.user_id === user.uid,
-                hasImage: !!data.image_url,
-                date_id: data.date_id,
-                allFields: Object.keys(data)
-              })
-              if (data.user_id === user.uid) {
-                myUploadData = data
-                console.log('📸 [HOME] This is MY upload')
-              } else {
-                partnerUploadData = data
-                console.log('📸 [HOME] This is PARTNER upload')
-              }
-            })
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data()
+        console.log('📸 [HOME] Found upload:', {
+            doc_id: docSnap.id,
+          user_id: data.user_id,
+            current_user_id: user.uid,
+          isMine: data.user_id === user.uid,
+            hasImage: !!data.image_url,
+            date_id: data.date_id,
+            allFields: Object.keys(data)
+        })
+        if (data.user_id === user.uid) {
+          myUploadData = data
+            console.log('📸 [HOME] This is MY upload')
+        } else {
+          partnerUploadData = data
+            console.log('📸 [HOME] This is PARTNER upload')
+        }
+      })
 
-            console.log('✅ [HOME] ===== UPLOADS FETCH COMPLETED =====')
-            console.log('✅ [HOME] Final uploads status:', {
-              myUpload: !!myUploadData,
-              partnerUpload: !!partnerUploadData,
-              canSeePartner: !!(myUploadData && myUploadData.image_url)
-            })
+        console.log('✅ [HOME] ===== UPLOADS FETCH COMPLETED =====')
+        console.log('✅ [HOME] Final uploads status:', {
+        myUpload: !!myUploadData,
+        partnerUpload: !!partnerUploadData,
+        canSeePartner: !!(myUploadData && myUploadData.image_url)
+      })
             
             // Success - return early
             return
@@ -293,13 +293,13 @@ export default function Home({ user }) {
       try {
         await fetchUploadsWithRetry()
       } catch (error) {
-        console.error('❌ [HOME] ===== ERROR IN UPLOADS FETCH =====')
-        console.error('❌ [HOME] Error name:', error.name)
-        console.error('❌ [HOME] Error message:', error.message)
-        console.error('❌ [HOME] Error code:', error.code)
-        console.error('❌ [HOME] Error stack:', error.stack)
-        console.warn('⚠️ [HOME] Continuing without uploads data')
-        // Continua con valori null, l'app funzionerà comunque
+          console.error('❌ [HOME] ===== ERROR IN UPLOADS FETCH =====')
+          console.error('❌ [HOME] Error name:', error.name)
+          console.error('❌ [HOME] Error message:', error.message)
+          console.error('❌ [HOME] Error code:', error.code)
+          console.error('❌ [HOME] Error stack:', error.stack)
+          console.warn('⚠️ [HOME] Continuing without uploads data')
+          // Continua con valori null, l'app funzionerà comunque
       }
 
       setMyUpload(myUploadData)
