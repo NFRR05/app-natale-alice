@@ -1,0 +1,19 @@
+{
+  "name": "MyBubiAPP",
+  "short_name": "MyBubiAPP",
+  "description": "I nostri momenti speciali",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ec4899",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+
