@@ -19,7 +19,7 @@ const firebaseConfig = {
 // VAPID Key per Firebase Cloud Messaging (FCM)
 // Ottieni questa chiave da Firebase Console → Impostazioni progetto → Cloud Messaging → Web Push certificates
 // Genera una nuova key pair se non esiste già
-export const vapidKey = 'YOUR_VAPID_KEY_HERE' // TODO: Sostituisci con la tua VAPID key da Firebase Console
+export const vapidKey = 'BOIAhV6RofwqbDY3HfRbupMmt4QQ1_4aOk_daBQoyt05hLaaewiAAb_NWUYEgWBpmYu3zgq5gArvGiRjojaBqBQ' // TODO: Sostituisci con la tua VAPID key da Firebase Console
 
 // Inizializza Firebase
 const app = initializeApp(firebaseConfig);

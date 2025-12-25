@@ -164,39 +164,70 @@ function App() {
           console.error('❌ [FCM] Service worker registration failed:', swError)
           return
         }
-      }
-
-      // Request notification permission
-      const permission = await Notification.requestPermission()
-      if (permission !== 'granted') {
-        console.warn('⚠️ [FCM] Notification permission denied')
+      } else {
+        console.error('❌ [FCM] Service workers not supported in this browser')
         return
       }
 
+      // Request notification permission
+      console.log('🔔 [FCM] Requesting notification permission...')
+      const permission = await Notification.requestPermission()
+      console.log('📱 [FCM] Permission result:', permission)
+      
+      if (permission !== 'granted') {
+        console.warn('⚠️ [FCM] Notification permission denied or dismissed. Permission:', permission)
+        console.warn('⚠️ [FCM] User must grant notification permission for push notifications to work')
+        return
+      }
+      
+      console.log('✅ [FCM] Notification permission granted!')
+
       // Get FCM token
-      if (!vapidKey || vapidKey === 'BOIAhV6RofwqbDY3HfRbupMmt4QQ1_4aOk_daBQoyt05hLaaewiAAb_NWUYEgWBpmYu3zgq5gArvGiRjojaBqBQ') {
-        console.error('❌ [FCM] VAPID key not configured! Please add it to firebaseConfig.js')
+      console.log('🔑 [FCM] Checking VAPID key...')
+      console.log('🔑 [FCM] VAPID key exists:', !!vapidKey)
+      console.log('🔑 [FCM] VAPID key is placeholder:', vapidKey === 'YOUR_VAPID_KEY_HERE')
+      
+      if (!vapidKey || vapidKey === 'YOUR_VAPID_KEY_HERE') {
+        console.error('❌ [FCM] VAPID key not configured!')
+        console.error('❌ [FCM] Current VAPID key value:', vapidKey ? 'Set but invalid' : 'Not set')
         console.error('❌ [FCM] Get it from Firebase Console → Cloud Messaging → Web Push certificates')
         return
       }
       
-      const token = await getToken(messaging, { vapidKey })
+      console.log('✅ [FCM] VAPID key is valid, requesting FCM token...')
+      console.log('🔑 [FCM] VAPID key preview:', vapidKey.substring(0, 20) + '...')
       
-      if (token) {
-        console.log('✅ [FCM] FCM token obtained:', token.substring(0, 20) + '...')
+      try {
+        const token = await getToken(messaging, { vapidKey })
         
-        // Save token to Firestore
-        const tokenRef = doc(collection(db, 'user_tokens'), currentUser.uid)
-        await setDoc(tokenRef, {
-          user_id: currentUser.uid,
-          email: currentUser.email,
-          fcm_token: token,
-          updated_at: new Date()
-        }, { merge: true })
-        
-        console.log('✅ [FCM] Token saved to Firestore')
-      } else {
-        console.warn('⚠️ [FCM] No FCM token available')
+        if (token) {
+          console.log('✅ [FCM] FCM token obtained:', token.substring(0, 20) + '...')
+          console.log('💾 [FCM] Saving token to Firestore...')
+          
+          // Save token to Firestore
+          const tokenRef = doc(collection(db, 'user_tokens'), currentUser.uid)
+          await setDoc(tokenRef, {
+            user_id: currentUser.uid,
+            email: currentUser.email,
+            fcm_token: token,
+            updated_at: new Date()
+          }, { merge: true })
+          
+          console.log('✅ [FCM] Token saved to Firestore successfully!')
+          console.log('👤 [FCM] User ID:', currentUser.uid)
+          console.log('📧 [FCM] Email:', currentUser.email)
+        } else {
+          console.warn('⚠️ [FCM] No FCM token available')
+          console.warn('⚠️ [FCM] This might happen if:')
+          console.warn('⚠️ [FCM] - Service worker is not registered correctly')
+          console.warn('⚠️ [FCM] - VAPID key is incorrect')
+          console.warn('⚠️ [FCM] - Permission was not granted')
+        }
+      } catch (tokenError) {
+        console.error('❌ [FCM] Error getting FCM token:', tokenError)
+        console.error('❌ [FCM] Error code:', tokenError.code)
+        console.error('❌ [FCM] Error message:', tokenError.message)
+        console.error('❌ [FCM] Full error:', tokenError)
       }
 
       // Handle foreground messages
@@ -216,6 +247,12 @@ function App() {
       })
     } catch (error) {
       console.error('❌ [FCM] Error setting up push notifications:', error)
+      console.error('❌ [FCM] Error details:', {
+        name: error.name,
+        message: error.message,
+        code: error.code,
+        stack: error.stack
+      })
     }
   }
 

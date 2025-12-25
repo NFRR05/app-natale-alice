@@ -187,3 +187,107 @@ exports.notifyMidnightMemory = functions.pubsub
         return {success: false, error: error.message};
     }
     });
+
+// Helper function per inviare notifiche a tutti gli utenti
+const sendNotificationToAllUsers = async (title, body, dataType = "reminder") => {
+  try {
+    const allTokensSnapshot = await db.collection("user_tokens").get();
+
+    if (allTokensSnapshot.empty) {
+      console.log("⚠️ [FUNCTION] No FCM tokens found");
+      return {success: false, sent: 0, failed: 0};
+    }
+
+    const messages = [];
+    allTokensSnapshot.forEach((doc) => {
+      const tokenData = doc.data();
+      if (tokenData.fcm_token) {
+        messages.push({
+          notification: {
+            title: title,
+            body: body,
+          },
+          data: {
+            type: dataType,
+          },
+          token: tokenData.fcm_token,
+          webpush: {
+            notification: {
+              icon: "/favicon.svg",
+              badge: "/favicon.svg",
+              vibrate: [200, 100, 200],
+            },
+          },
+        });
+      }
+    });
+
+    if (messages.length === 0) {
+      console.log("⚠️ [FUNCTION] No valid FCM tokens found");
+      return {success: false, sent: 0, failed: 0};
+    }
+
+    const results = await admin.messaging().sendAll(messages);
+    console.log(`✅ [FUNCTION] Sent ${results.successCount} notifications`);
+    console.log(`⚠️ [FUNCTION] Failed: ${results.failureCount} notifications`);
+
+    return {
+      success: true,
+      sent: results.successCount,
+      failed: results.failureCount,
+    };
+  } catch (error) {
+    console.error("❌ [FUNCTION] Error sending notifications:", error);
+    return {success: false, error: error.message, sent: 0, failed: 0};
+  }
+};
+
+// Notifica ogni 2 ore in punto (ore pari: 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22)
+exports.notifyEvery2Hours = functions.pubsub
+    .schedule("0 */2 * * *") // Ogni 2 ore a minuto 0
+    .timeZone("Europe/Rome")
+    .onRun(async (context) => {
+      console.log("⏰ [FUNCTION] 2-hour notification triggered");
+
+      const now = new Date();
+      const hour = now.getHours();
+
+      // Verifica che sia un'ora pari (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22)
+      if (hour % 2 !== 0) {
+        console.log(`⏭️ [FUNCTION] Skipping - current hour ${hour} is not even`);
+        return null;
+      }
+
+      const messages = [
+        "💕 È il momento di condividere i tuoi momenti speciali!",
+        "📸 Non dimenticare di caricare la tua foto di oggi!",
+        "❤️ Il tuo partner ti aspetta su MyBubiAPP!",
+        "✨ Scatta un momento speciale e condividilo!",
+      ];
+
+      const randomMessage = messages[Math.floor(Math.random() * messages.length)];
+
+      const result = await sendNotificationToAllUsers(
+          `MyBubiAPP - Ora ${hour}:00`,
+          randomMessage,
+          "hourly_reminder"
+      );
+
+      return result;
+    });
+
+// Notifica giornaliera alle 14:20 precisa
+exports.notifyDaily1420 = functions.pubsub
+    .schedule("35 14 * * *") // Ogni giorno alle 14:20
+    .timeZone("Europe/Rome")
+    .onRun(async (context) => {
+      console.log("🕐 [FUNCTION] Daily 14:20 notification triggered");
+
+      const result = await sendNotificationToAllUsers(
+          "MyBubiAPP - Pomeriggio 💕",
+          "È il momento perfetto per condividere il tuo momento speciale di oggi! 📸",
+          "daily_reminder"
+      );
+
+      return result;
+    });
