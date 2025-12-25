@@ -2,32 +2,36 @@
 // e per notifiche a mezzanotte quando viene sbloccato un nuovo ricordo
 // Deploy con: firebase deploy --only functions
 
-const functions = require("firebase-functions");
+const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const {onSchedule} = require("firebase-functions/v2/scheduler");
+const {onRequest} = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 
 admin.initializeApp();
 
-// Get Firestore instance - use default database
-// Note: If you have multiple databases, you may need to specify the database ID
-const db = admin.firestore();
+// Get Firestore instance - use the custom database "mybubiiapp2005"
+const {getFirestore} = require("firebase-admin/firestore");
+const db = getFirestore("mybubiiapp2005");
 
 // Trigger quando viene creato un nuovo upload
-exports.notifyPartnerOnUpload = functions.firestore
-    .document("uploads/{uploadId}")
-  .onCreate(async (snap, context) => {
-      const uploadData = snap.data();
+exports.notifyPartnerOnUpload = onDocumentCreated(
+    {
+      document: "uploads/{uploadId}",
+      database: "mybubiiapp2005",
+    },
+    async (event) => {
+      const uploadData = event.data.data();
       const uploadUserId = uploadData.user_id;
       const dateId = uploadData.date_id;
+      const uploadId = event.params.uploadId;
 
       console.log("📸 [FUNCTION] New upload detected:", {
-      uploadId: context.params.uploadId,
-      userId: uploadUserId,
+        uploadId: uploadId,
+        userId: uploadUserId,
         dateId: dateId,
       });
 
-    // Trova il token FCM del partner
-      // Cerca nella collection user_tokens tutti i token e trova quello
-      // diverso dall'utente corrente
+      // Trova il token FCM del partner
       const allTokensSnapshot = await db.collection("user_tokens").get();
       const partnerTokenDoc = allTokensSnapshot.docs.find((doc) => {
         const tokenData = doc.data();
@@ -35,34 +39,34 @@ exports.notifyPartnerOnUpload = functions.firestore
                tokenData.fcm_token;
       });
 
-    if (!partnerTokenDoc) {
+      if (!partnerTokenDoc) {
         console.log("⚠️ [FUNCTION] Partner FCM token not found");
         return null;
-    }
+      }
 
       const partnerFCMToken = partnerTokenDoc.data().fcm_token;
       const partnerUserId = partnerTokenDoc.data().user_id;
-    
+
       console.log("✅ [FUNCTION] Found partner token:", {
-      partnerUserId: partnerUserId,
+        partnerUserId: partnerUserId,
         hasToken: !!partnerFCMToken,
       });
 
-    // Prepara il messaggio
-    const message = {
-      notification: {
+      // Prepara il messaggio
+      const message = {
+        notification: {
           title: "Nuova foto dal partner! 💕",
           body: "Il tuo partner ha caricato una nuova foto. " +
                 "Apri l'app per vederla!",
-      },
-      data: {
+        },
+        data: {
           type: "partner_upload",
-        date_id: dateId,
-          upload_id: context.params.uploadId,
-      },
-      token: partnerFCMToken,
-      webpush: {
-        notification: {
+          date_id: dateId,
+          upload_id: uploadId,
+        },
+        token: partnerFCMToken,
+        webpush: {
+          notification: {
             icon: "/favicon.svg",
             badge: "/favicon.svg",
             vibrate: [200, 100, 200],
@@ -70,23 +74,28 @@ exports.notifyPartnerOnUpload = functions.firestore
         },
       };
 
-    // Invia la notifica
-    try {
+      // Invia la notifica
+      try {
         const response = await admin.messaging().send(message);
-        console.log("✅ [FUNCTION] Notification sent successfully:", response);
+        console.log(
+            "✅ [FUNCTION] Notification sent successfully:", response,
+        );
         return {success: true, messageId: response};
       } catch (error) {
         console.error("❌ [FUNCTION] Error sending notification:", error);
         return {success: false, error: error.message};
       }
-    });
+    },
+);
 
 // Scheduled function per notificare a mezzanotte quando viene sbloccato
-// un nuovo ricordo. Esegue ogni giorno alle 00:00 (mezzanotte) UTC
-exports.notifyMidnightMemory = functions.pubsub
-    .schedule("0 0 * * *") // Every day at midnight UTC
-    .timeZone("Europe/Rome") // Adjust to your timezone
-    .onRun(async (context) => {
+// un nuovo ricordo
+exports.notifyMidnightMemory = onSchedule(
+    {
+      schedule: "0 0 * * *",
+      timeZone: "Europe/Rome",
+    },
+    async (event) => {
       console.log("🌙 [FUNCTION] Midnight notification triggered");
 
       try {
@@ -104,7 +113,8 @@ exports.notifyMidnightMemory = functions.pubsub
 
         if (!dailyPostSnap.exists) {
           console.log(
-              "ℹ️ [FUNCTION] No memory found for today, skipping notification"
+              "ℹ️ [FUNCTION] No memory found for today, " +
+              "skipping notification",
           );
           return null;
         }
@@ -114,14 +124,15 @@ exports.notifyMidnightMemory = functions.pubsub
 
         if (!hasMemory) {
           console.log(
-              "ℹ️ [FUNCTION] Memory exists but no image, skipping notification"
+              "ℹ️ [FUNCTION] Memory exists but no image, " +
+              "skipping notification",
           );
           return null;
         }
 
         console.log(
             "✅ [FUNCTION] Memory found for today, " +
-            "sending notifications to all users"
+            "sending notifications to all users",
         );
 
         // Get all FCM tokens
@@ -147,7 +158,8 @@ exports.notifyMidnightMemory = functions.pubsub
                 type: "midnight_memory",
                 date_id: todayId,
                 theme_text: dailyPostData.theme_text || "",
-                memory_image_url: dailyPostData.memory_image_url || "",
+                memory_image_url:
+                    dailyPostData.memory_image_url || "",
               },
               token: tokenData.fcm_token,
               webpush: {
@@ -169,10 +181,11 @@ exports.notifyMidnightMemory = functions.pubsub
         // Send all notifications
         const results = await admin.messaging().sendAll(messages);
         console.log(
-            `✅ [FUNCTION] Sent ${results.successCount} midnight notifications`
+            `✅ [FUNCTION] Sent ${results.successCount} ` +
+            "midnight notifications",
         );
         console.log(
-            `⚠️ [FUNCTION] Failed: ${results.failureCount} notifications`
+            `⚠️ [FUNCTION] Failed: ${results.failureCount} notifications`,
         );
 
         return {
@@ -180,16 +193,21 @@ exports.notifyMidnightMemory = functions.pubsub
           sent: results.successCount,
           failed: results.failureCount,
         };
-    } catch (error) {
+      } catch (error) {
         console.error(
-            "❌ [FUNCTION] Error in midnight notification:", error
+            "❌ [FUNCTION] Error in midnight notification:", error,
         );
         return {success: false, error: error.message};
-    }
-    });
+      }
+    },
+);
 
 // Helper function per inviare notifiche a tutti gli utenti
-const sendNotificationToAllUsers = async (title, body, dataType = "reminder") => {
+const sendNotificationToAllUsers = async (
+    title,
+    body,
+    dataType = "reminder",
+) => {
   try {
     const allTokensSnapshot = await db.collection("user_tokens").get();
 
@@ -228,8 +246,12 @@ const sendNotificationToAllUsers = async (title, body, dataType = "reminder") =>
     }
 
     const results = await admin.messaging().sendAll(messages);
-    console.log(`✅ [FUNCTION] Sent ${results.successCount} notifications`);
-    console.log(`⚠️ [FUNCTION] Failed: ${results.failureCount} notifications`);
+    console.log(
+        `✅ [FUNCTION] Sent ${results.successCount} notifications`,
+    );
+    console.log(
+        `⚠️ [FUNCTION] Failed: ${results.failureCount} notifications`,
+    );
 
     return {
       success: true,
@@ -242,52 +264,139 @@ const sendNotificationToAllUsers = async (title, body, dataType = "reminder") =>
   }
 };
 
-// Notifica ogni 2 ore in punto (ore pari: 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22)
-exports.notifyEvery2Hours = functions.pubsub
-    .schedule("0 */2 * * *") // Ogni 2 ore a minuto 0
-    .timeZone("Europe/Rome")
-    .onRun(async (context) => {
-      console.log("⏰ [FUNCTION] 2-hour notification triggered");
-
-      const now = new Date();
-      const hour = now.getHours();
-
-      // Verifica che sia un'ora pari (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22)
-      if (hour % 2 !== 0) {
-        console.log(`⏭️ [FUNCTION] Skipping - current hour ${hour} is not even`);
-        return null;
-      }
+// Notifica ogni 2 ore in punto (ore pari: 0, 2, 4, 6, 8, 10, 12, 14, 16,
+// 18, 20, 22)
+exports.notifyEvery2Hours = onSchedule(
+    {
+      schedule: "0 0,2,4,6,8,10,12,14,16,18,20,22 * * *",
+      timeZone: "Europe/Rome",
+    },
+    async (event) => {
+      console.log("⏰ [FUNCTION] Every 2 hours notification triggered");
 
       const messages = [
-        "💕 È il momento di condividere i tuoi momenti speciali!",
-        "📸 Non dimenticare di caricare la tua foto di oggi!",
-        "❤️ Il tuo partner ti aspetta su MyBubiAPP!",
-        "✨ Scatta un momento speciale e condividilo!",
+        "È ora di un piccolo pensiero per il tuo amore! 💖",
+        "Un nuovo momento da condividere ti aspetta! ✨",
+        "Non dimenticare di rendere speciale questo momento! 💌",
+        "Ogni due ore, un'occasione per amare! ❤️",
       ];
-
-      const randomMessage = messages[Math.floor(Math.random() * messages.length)];
+      const randomMessage =
+          messages[Math.floor(Math.random() * messages.length)];
 
       const result = await sendNotificationToAllUsers(
-          `MyBubiAPP - Ora ${hour}:00`,
+          "MyBubiAPP Reminder",
           randomMessage,
-          "hourly_reminder"
+          "hourly_reminder",
       );
 
       return result;
-    });
+    },
+);
 
 // Notifica giornaliera alle 14:20 precisa
-exports.notifyDaily1420 = functions.pubsub
-    .schedule("35 14 * * *") // Ogni giorno alle 14:20
-    .timeZone("Europe/Rome")
-    .onRun(async (context) => {
+exports.notifyDaily1420 = onSchedule(
+    {
+      schedule: "20 14 * * *",
+      timeZone: "Europe/Rome",
+    },
+    async (event) => {
       console.log("🕐 [FUNCTION] Daily 14:20 notification triggered");
 
       const result = await sendNotificationToAllUsers(
-          "MyBubiAPP - Pomeriggio 💕",
-          "È il momento perfetto per condividere il tuo momento speciale di oggi! 📸",
-          "daily_reminder"
+          "MyBubiAPP: Momento Speciale! 💑",
+          "Sono le 14:20! Un pensiero per il tuo amore? " +
+          "Apri l'app e condividi un momento!",
+          "daily_1420_reminder",
       );
 
       return result;
-    });
+    },
+);
+
+// Funzione di TEST per verificare le notifiche immediatamente
+// Chiama: https://us-central1-mybubiiapp.cloudfunctions.net/testNotificationNow
+// Elimina questa funzione dopo i test
+exports.testNotificationNow = onRequest(
+    async (req, res) => {
+      console.log("🧪 [TEST] Test notification triggered");
+
+      try {
+        const allTokensSnapshot = await db.collection("user_tokens").get();
+
+        if (allTokensSnapshot.empty) {
+          console.log("⚠️ [TEST] No FCM tokens found in user_tokens");
+          return res.status(400).json({
+            error: "No FCM tokens found",
+            message: "Make sure users have logged in and granted " +
+                     "notification permissions",
+          });
+        }
+
+        console.log(`📋 [TEST] Found ${allTokensSnapshot.size} user token(s)`);
+
+        const messages = [];
+        allTokensSnapshot.forEach((doc) => {
+          const tokenData = doc.data();
+          if (tokenData.fcm_token) {
+            console.log(
+                `📋 [TEST] Adding token for user: ${tokenData.user_id}`,
+            );
+            messages.push({
+              notification: {
+                title: "🧪 Test Notifica MyBubiAPP",
+                body: "Se vedi questa notifica, " +
+                      "tutto funziona perfettamente! ✅",
+              },
+              data: {
+                type: "test",
+                timestamp: new Date().toISOString(),
+              },
+              token: tokenData.fcm_token,
+              webpush: {
+                notification: {
+                  icon: "/favicon.svg",
+                  badge: "/favicon.svg",
+                  vibrate: [200, 100, 200],
+                },
+              },
+            });
+          } else {
+            console.log(
+                `⚠️ [TEST] User ${tokenData.user_id} has no FCM token`,
+            );
+          }
+        });
+
+        if (messages.length === 0) {
+          return res.status(400).json({
+            error: "No valid FCM tokens found",
+            message: "Tokens exist but none have valid fcm_token field",
+          });
+        }
+
+        console.log(`📤 [TEST] Sending ${messages.length} notification(s)...`);
+        const results = await admin.messaging().sendAll(messages);
+
+        console.log(
+            `✅ [TEST] Results: ${results.successCount} sent, ` +
+            `${results.failureCount} failed`,
+        );
+
+        return res.json({
+          success: true,
+          sent: results.successCount,
+          failed: results.failureCount,
+          totalTokens: allTokensSnapshot.size,
+          validTokens: messages.length,
+          message: `Notifiche inviate: ${results.successCount}, ` +
+                   `Fallite: ${results.failureCount}`,
+        });
+      } catch (error) {
+        console.error("❌ [TEST] Error:", error);
+        return res.status(500).json({
+          error: error.message,
+          code: error.code,
+        });
+      }
+    },
+);
