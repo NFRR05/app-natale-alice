@@ -1,75 +1,123 @@
 import React, { useState } from 'react'
-import { signInWithEmailAndPassword } from 'firebase/auth'
-import { auth } from '../../firebaseConfig'
+import { createUserWithEmailAndPassword } from 'firebase/auth'
+import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore'
+import { auth, db } from '../../firebaseConfig'
 
-export default function Login({ onSwitchToSignUp }) {
+export default function SignUp({ onSwitchToLogin }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [username, setUsername] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [rememberMe, setRememberMe] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const handleLogin = async (e) => {
+  const validateUsername = (name) => {
+    // Username must be 3-20 characters, alphanumeric and underscores only
+    const regex = /^[a-zA-Z0-9_]{3,20}$/
+    return regex.test(name)
+  }
+
+  const checkUsernameAvailable = async (name) => {
+    const usersRef = collection(db, 'users')
+    const q = query(usersRef, where('username_lowercase', '==', name.toLowerCase()))
+    const snapshot = await getDocs(q)
+    return snapshot.empty
+  }
+
+  const handleSignUp = async (e) => {
     e.preventDefault()
     setError('')
-    
-    console.log('🔐 [LOGIN] Attempting login...')
-    console.log('📧 [LOGIN] Email:', email)
-    
-    if (!email || !password) {
-      console.warn('⚠️ [LOGIN] Missing email or password')
-      setError('Inserisci email e password')
+
+    console.log('📝 [SIGNUP] Starting signup process...')
+
+    // Validations
+    if (!email || !password || !confirmPassword || !username) {
+      setError('Compila tutti i campi')
       return
     }
 
-    console.log('✅ [LOGIN] Proceeding with Firebase auth...')
+    if (!validateUsername(username)) {
+      setError('Username deve essere 3-20 caratteri (lettere, numeri, underscore)')
+      return
+    }
+
+    if (password.length < 6) {
+      setError('La password deve essere almeno 6 caratteri')
+      return
+    }
+
+    if (password !== confirmPassword) {
+      setError('Le password non coincidono')
+      return
+    }
+
     setLoading(true)
+
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password)
-      console.log('✅ [LOGIN] Login successful!')
-      console.log('👤 [LOGIN] User:', {
-        uid: userCredential.user.uid,
-        email: userCredential.user.email
+      // Check if username is available
+      console.log('🔍 [SIGNUP] Checking username availability...')
+      const isAvailable = await checkUsernameAvailable(username)
+      
+      if (!isAvailable) {
+        setError('Questo username è già in uso')
+        setLoading(false)
+        return
+      }
+
+      console.log('✅ [SIGNUP] Username available, creating account...')
+
+      // Create Firebase Auth account
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+      const user = userCredential.user
+
+      console.log('✅ [SIGNUP] Auth account created:', user.uid)
+
+      // Create user profile in Firestore
+      await setDoc(doc(db, 'users', user.uid), {
+        uid: user.uid,
+        email: email.toLowerCase(),
+        username: username,
+        username_lowercase: username.toLowerCase(),
+        display_name: username,
+        created_at: new Date(),
+        updated_at: new Date()
       })
+
+      console.log('✅ [SIGNUP] User profile created in Firestore')
+      console.log('🎉 [SIGNUP] Signup complete!')
+
     } catch (err) {
-      console.error('❌ [LOGIN] Login failed:', err)
-      console.error('❌ [LOGIN] Error code:', err.code)
-      console.error('❌ [LOGIN] Error message:', err.message)
-      
-      // Traduci gli errori Firebase in messaggi user-friendly
-      let errorMessage = 'Errore durante l\'accesso'
-      
+      console.error('❌ [SIGNUP] Error:', err)
+
+      let errorMessage = 'Errore durante la registrazione'
+
       switch (err.code) {
-        case 'auth/invalid-credential':
-        case 'auth/wrong-password':
-        case 'auth/user-not-found':
+        case 'auth/email-already-in-use':
+          errorMessage = 'Questa email è già registrata'
+          break
         case 'auth/invalid-email':
-          errorMessage = 'Email o password errata'
+          errorMessage = 'Email non valida'
           break
-        case 'auth/user-disabled':
-          errorMessage = 'Questo account è stato disabilitato'
-          break
-        case 'auth/too-many-requests':
-          errorMessage = 'Troppi tentativi falliti. Riprova più tardi'
+        case 'auth/weak-password':
+          errorMessage = 'Password troppo debole'
           break
         case 'auth/network-request-failed':
-          errorMessage = 'Errore di connessione. Verifica la tua connessione internet'
+          errorMessage = 'Errore di connessione'
           break
         default:
-          errorMessage = 'Errore durante l\'accesso. Riprova più tardi'
+          errorMessage = err.message || 'Errore durante la registrazione'
       }
-      
+
       setError(errorMessage)
     } finally {
       setLoading(false)
-      console.log('🏁 [LOGIN] Login process completed')
     }
   }
 
   return (
     <div className="min-h-screen flex relative overflow-hidden">
-      {/* Video Background - Always visible */}
+      {/* Video Background */}
       <div className="absolute inset-0 w-full h-full">
         <video
           autoPlay
@@ -80,24 +128,23 @@ export default function Login({ onSwitchToSignUp }) {
         >
           <source src="/heartsfalling.mp4" type="video/mp4" />
         </video>
-        {/* Overlay scuro per mobile, gradient per desktop */}
         <div className="absolute inset-0 bg-black/50 lg:bg-gradient-to-r lg:from-black/60 lg:via-black/40 lg:to-transparent" />
       </div>
 
-      {/* Desktop Left Side - Testimonial */}
+      {/* Desktop Left Side */}
       <div className="hidden lg:flex lg:w-1/2 relative z-10 flex-col justify-end p-12 text-white">
         <div className="mb-8">
           <div className="inline-flex items-center gap-2 mb-6">
             <span className="text-2xl font-bold">MyBubiAPP</span>
           </div>
           <p className="text-3xl font-semibold mb-4 leading-tight">
-            Semplicemente tutto ciò che io e il mio partner ci serviamo.
+            Condividi momenti speciali con chi ami
           </p>
-          <p className="text-gray-300 text-lg">La nostra app per i momenti speciali</p>
+          <p className="text-gray-300 text-lg">Crea il tuo account e inizia a condividere</p>
         </div>
       </div>
 
-      {/* Login Form Section */}
+      {/* SignUp Form Section */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-8 relative z-10">
         <div className="w-full max-w-md">
           {/* Logo - Mobile only */}
@@ -111,14 +158,36 @@ export default function Login({ onSwitchToSignUp }) {
           <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-8 lg:p-10 w-full">
             <div className="mb-8">
               <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                Bentornato su MyBubiAPP
+                Crea Account
               </h1>
               <p className="text-gray-600 text-base">
-                Condividi i tuoi momenti speciali con chi ami
+                Registrati per iniziare a condividere
               </p>
             </div>
 
-            <form onSubmit={handleLogin} className="space-y-6">
+            <form onSubmit={handleSignUp} className="space-y-5">
+              {/* Username Field */}
+              <div>
+                <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
+                  Username
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">@</span>
+                  <input
+                    id="username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value.replace(/\s/g, ''))}
+                    className="w-full pl-9 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all text-gray-900 text-base"
+                    placeholder="il_tuo_username"
+                    required
+                    autoComplete="username"
+                    maxLength={20}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-gray-500">3-20 caratteri, lettere, numeri e underscore</p>
+              </div>
+
               {/* Email Field */}
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -150,13 +219,13 @@ export default function Login({ onSwitchToSignUp }) {
                     className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all text-gray-900 text-base"
                     placeholder="••••••••"
                     required
-                    autoComplete="current-password"
+                    autoComplete="new-password"
+                    minLength={6}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors focus:outline-none"
-                    aria-label={showPassword ? "Nascondi password" : "Mostra password"}
                   >
                     {showPassword ? (
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -172,26 +241,21 @@ export default function Login({ onSwitchToSignUp }) {
                 </div>
               </div>
 
-              {/* Forgot Password & Remember Me */}
-              <div className="flex items-center justify-between">
-                <label className="flex items-center cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="sr-only"
-                  />
-                  <div className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
-                    rememberMe ? 'bg-pink-500' : 'bg-gray-300'
-                  }`}>
-                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${
-                      rememberMe ? 'translate-x-5' : 'translate-x-0'
-                    }`} />
-                  </div>
-                  <span className="ml-3 text-sm text-gray-700 font-normal">
-                    Ricorda i dettagli di accesso
-                  </span>
+              {/* Confirm Password Field */}
+              <div>
+                <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
+                  Conferma Password
                 </label>
+                <input
+                  id="confirmPassword"
+                  type={showPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all text-gray-900 text-base"
+                  placeholder="••••••••"
+                  required
+                  autoComplete="new-password"
+                />
               </div>
 
               {/* Error Message */}
@@ -208,7 +272,7 @@ export default function Login({ onSwitchToSignUp }) {
                 className="w-full bg-gradient-to-r from-pink-500 to-red-600 hover:from-pink-600 hover:to-red-700 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-pink-500/20 disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden group"
               >
                 <span className={`relative z-10 ${loading ? 'opacity-0' : 'opacity-100'}`}>
-                  Accedi
+                  Registrati
                 </span>
                 {loading && (
                   <div className="absolute inset-0 flex items-center justify-center z-10">
@@ -219,15 +283,15 @@ export default function Login({ onSwitchToSignUp }) {
               </button>
             </form>
 
-            {/* Switch to SignUp */}
+            {/* Switch to Login */}
             <div className="mt-8 text-center">
               <p className="text-sm text-gray-600">
-                Non hai un account?{' '}
+                Hai già un account?{' '}
                 <button
-                  onClick={onSwitchToSignUp}
+                  onClick={onSwitchToLogin}
                   className="text-pink-600 hover:text-pink-700 font-semibold transition-colors"
                 >
-                  Registrati
+                  Accedi
                 </button>
               </p>
             </div>

@@ -1,10 +1,12 @@
 import React, { useState, useRef } from 'react'
 import imageCompression from 'browser-image-compression'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { storage, db } from '../../firebaseConfig'
+import { useToast } from '../contexts/ToastContext'
 
-export default function PhotoUpload({ user, dateId, onUploadComplete }) {
+export default function PhotoUpload({ user, dateId, onUploadComplete, conversationId }) {
+  const { showToast } = useToast()
   const [selectedImage, setSelectedImage] = useState(null)
   const [preview, setPreview] = useState(null)
   const [caption, setCaption] = useState('')
@@ -48,21 +50,25 @@ export default function PhotoUpload({ user, dateId, onUploadComplete }) {
       reader.readAsDataURL(compressedFile)
     } catch (error) {
       console.error('❌ [UPLOAD] Error compressing image:', error)
-      alert('Errore durante la compressione dell\'immagine')
+      showToast('Errore durante la compressione dell\'immagine', 'error')
     }
   }
 
   const handleUpload = async () => {
     if (!selectedImage) {
       console.warn('⚠️ [UPLOAD] No image selected for upload')
-      alert('Seleziona prima una foto')
+      showToast('Seleziona prima una foto', 'error')
       return
     }
 
     console.log('☁️ [UPLOAD] Starting upload...')
     setUploading(true)
     try {
-      const storagePath = `uploads/${user.uid}/${dateId}_${Date.now()}.jpg`
+      // Determine storage path based on whether this is a conversation upload or global
+      const storagePath = conversationId 
+        ? `conversations/${conversationId}/${user.uid}/${dateId}_${Date.now()}.jpg`
+        : `uploads/${user.uid}/${dateId}_${Date.now()}.jpg`
+      
       console.log('📤 [UPLOAD] Uploading to Storage:', storagePath)
       const imageRef = ref(storage, storagePath)
       await uploadBytes(imageRef, selectedImage)
@@ -81,8 +87,24 @@ export default function PhotoUpload({ user, dateId, onUploadComplete }) {
 
       const firestorePath = `${dateId}_${user.uid}`
       console.log('💾 [UPLOAD] Saving to Firestore:', firestorePath)
-      const uploadRef = doc(db, 'uploads', firestorePath)
-      await setDoc(uploadRef, uploadData)
+      
+      // Save to conversation subcollection if conversationId is provided, otherwise to root uploads
+      const uploadRef = conversationId
+        ? doc(db, 'conversations', conversationId, 'uploads', firestorePath)
+        : doc(db, 'uploads', firestorePath)
+      
+      await setDoc(uploadRef, {
+        ...uploadData,
+        ...(conversationId && { conversation_id: conversationId })
+      })
+      
+      // Update conversation's updated_at if this is a conversation upload
+      if (conversationId) {
+        await updateDoc(doc(db, 'conversations', conversationId), {
+          updated_at: serverTimestamp(),
+          last_message: '📸 Nuova foto condivisa'
+        })
+      }
       console.log('✅ [UPLOAD] Data saved to Firestore')
 
       setSelectedImage(null)
@@ -93,13 +115,13 @@ export default function PhotoUpload({ user, dateId, onUploadComplete }) {
       }
       
       console.log('🎉 [UPLOAD] Upload completed successfully!')
-      alert('Foto caricata con successo! 🎉')
+      showToast('Foto caricata con successo! 🎉', 'success')
       if (onUploadComplete) {
         onUploadComplete()
       }
     } catch (error) {
       console.error('❌ [UPLOAD] Upload error:', error)
-      alert('Errore durante il caricamento: ' + error.message)
+      showToast('Errore durante il caricamento: ' + error.message, 'error')
     } finally {
       setUploading(false)
       console.log('🏁 [UPLOAD] Upload process completed')

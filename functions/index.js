@@ -13,6 +13,214 @@ admin.initializeApp();
 const {getFirestore} = require("firebase-admin/firestore");
 const db = getFirestore("mybubiiapp2005");
 
+// =====================================================
+// CHAT INVITE NOTIFICATION
+// Trigger quando viene creata una nuova conversazione
+// =====================================================
+exports.notifyChatInvite = onDocumentCreated(
+    {
+      document: "conversations/{conversationId}",
+      database: "mybubiiapp2005",
+    },
+    async (event) => {
+      const conversationData = event.data.data();
+      const conversationId = event.params.conversationId;
+      const createdBy = conversationData.created_by;
+      const participants = conversationData.participants || [];
+
+      console.log("💬 [FUNCTION] New conversation created:", {
+        conversationId: conversationId,
+        createdBy: createdBy,
+        participants: participants,
+      });
+
+      // Find the invited user (the one who didn't create the conversation)
+      const invitedUserId = participants.find((p) => p !== createdBy);
+
+      if (!invitedUserId) {
+        console.log("⚠️ [FUNCTION] No invited user found");
+        return null;
+      }
+
+      // Get the creator's username
+      let creatorUsername = "Qualcuno";
+      try {
+        const creatorDoc = await db.collection("users").doc(createdBy).get();
+        if (creatorDoc.exists) {
+          const creatorData = creatorDoc.data();
+          creatorUsername = creatorData.username ||
+                           creatorData.display_name ||
+                           "Qualcuno";
+        }
+      } catch (err) {
+        console.warn("⚠️ [FUNCTION] Could not fetch creator info:", err);
+      }
+
+      // Get the invited user's FCM token
+      const invitedTokenDoc = await db.collection("user_tokens")
+          .doc(invitedUserId).get();
+
+      if (!invitedTokenDoc.exists || !invitedTokenDoc.data().fcm_token) {
+        console.log("⚠️ [FUNCTION] Invited user FCM token not found");
+        return null;
+      }
+
+      const invitedFCMToken = invitedTokenDoc.data().fcm_token;
+
+      console.log("✅ [FUNCTION] Found invited user token:", {
+        invitedUserId: invitedUserId,
+        hasToken: !!invitedFCMToken,
+      });
+
+      // Prepare the notification message
+      const message = {
+        notification: {
+          title: "Nuovo invito chat! 💌",
+          body: `@${creatorUsername} ti ha invitato a chattare!`,
+        },
+        data: {
+          type: "chat_invite",
+          conversation_id: conversationId,
+          inviter_id: createdBy,
+          inviter_username: creatorUsername,
+        },
+        token: invitedFCMToken,
+        webpush: {
+          notification: {
+            icon: "/favicon.svg",
+            badge: "/favicon.svg",
+            vibrate: [200, 100, 200],
+            actions: [
+              {
+                action: "open",
+                title: "Apri Chat",
+              },
+            ],
+          },
+        },
+      };
+
+      // Send the notification
+      try {
+        const response = await admin.messaging().send(message);
+        console.log(
+            "✅ [FUNCTION] Chat invite notification sent:", response,
+        );
+        return {success: true, messageId: response};
+      } catch (error) {
+        console.error(
+            "❌ [FUNCTION] Error sending chat invite notification:", error,
+        );
+        return {success: false, error: error.message};
+      }
+    },
+);
+
+// =====================================================
+// PARTNER UPLOAD NOTIFICATION (for conversations)
+// Trigger quando viene creato un nuovo upload in una conversazione
+// =====================================================
+exports.notifyPartnerOnConversationUpload = onDocumentCreated(
+    {
+      document: "conversations/{conversationId}/uploads/{uploadId}",
+      database: "mybubiiapp2005",
+    },
+    async (event) => {
+      const uploadData = event.data.data();
+      const uploadUserId = uploadData.user_id;
+      const dateId = uploadData.date_id;
+      const conversationId = event.params.conversationId;
+      const uploadId = event.params.uploadId;
+
+      console.log("📸 [FUNCTION] New conversation upload detected:", {
+        conversationId: conversationId,
+        uploadId: uploadId,
+        userId: uploadUserId,
+        dateId: dateId,
+      });
+
+      // Get conversation to find the partner
+      const conversationDoc = await db.collection("conversations")
+          .doc(conversationId).get();
+
+      if (!conversationDoc.exists) {
+        console.log("⚠️ [FUNCTION] Conversation not found");
+        return null;
+      }
+
+      const participants = conversationDoc.data().participants || [];
+      const partnerId = participants.find((p) => p !== uploadUserId);
+
+      if (!partnerId) {
+        console.log("⚠️ [FUNCTION] Partner not found in conversation");
+        return null;
+      }
+
+      // Get uploader's username
+      let uploaderUsername = "Il tuo partner";
+      try {
+        const uploaderDoc = await db.collection("users")
+            .doc(uploadUserId).get();
+        if (uploaderDoc.exists) {
+          const uploaderData = uploaderDoc.data();
+          uploaderUsername = uploaderData.display_name ||
+                            uploaderData.username ||
+                            "Il tuo partner";
+        }
+      } catch (err) {
+        console.warn("⚠️ [FUNCTION] Could not fetch uploader info:", err);
+      }
+
+      // Get partner's FCM token
+      const partnerTokenDoc = await db.collection("user_tokens")
+          .doc(partnerId).get();
+
+      if (!partnerTokenDoc.exists || !partnerTokenDoc.data().fcm_token) {
+        console.log("⚠️ [FUNCTION] Partner FCM token not found");
+        return null;
+      }
+
+      const partnerFCMToken = partnerTokenDoc.data().fcm_token;
+
+      // Prepare the message
+      const message = {
+        notification: {
+          title: "Nuova foto! 📸",
+          body: `${uploaderUsername} ha caricato una nuova foto!`,
+        },
+        data: {
+          type: "conversation_upload",
+          conversation_id: conversationId,
+          date_id: dateId,
+          upload_id: uploadId,
+        },
+        token: partnerFCMToken,
+        webpush: {
+          notification: {
+            icon: "/favicon.svg",
+            badge: "/favicon.svg",
+            vibrate: [200, 100, 200],
+          },
+        },
+      };
+
+      // Send the notification
+      try {
+        const response = await admin.messaging().send(message);
+        console.log(
+            "✅ [FUNCTION] Upload notification sent:", response,
+        );
+        return {success: true, messageId: response};
+      } catch (error) {
+        console.error("❌ [FUNCTION] Error sending notification:", error);
+        return {success: false, error: error.message};
+      }
+    },
+);
+
+// =====================================================
+// LEGACY: Partner upload notification (old uploads collection)
+// =====================================================
 // Trigger quando viene creato un nuovo upload
 exports.notifyPartnerOnUpload = onDocumentCreated(
     {

@@ -1,6 +1,6 @@
 import React from 'react'
 
-export default function PartnerPhoto({ partnerUpload, canSeePartnerPhoto }) {
+export default function PartnerPhoto({ partnerUpload, canSeePartnerPhoto, partnerName }) {
   const formatTimestamp = (timestamp) => {
     if (!timestamp) return ''
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
@@ -17,7 +17,9 @@ export default function PartnerPhoto({ partnerUpload, canSeePartnerPhoto }) {
             </svg>
           </div>
           <div>
-            <h3 className="font-semibold text-gray-900">La Foto del Partner</h3>
+            <h3 className="font-semibold text-gray-900">
+              {partnerName ? `La Foto di ${partnerName}` : 'La Foto del Partner'}
+            </h3>
             <p className="text-xs text-gray-500">Il suo momento speciale</p>
           </div>
         </div>
@@ -82,7 +84,7 @@ export default function PartnerPhoto({ partnerUpload, canSeePartnerPhoto }) {
               </svg>
             </div>
             <p className="text-gray-600 text-sm font-medium mb-1">
-              Il tuo partner non ha ancora caricato la foto di oggi
+              {partnerName ? `${partnerName} non ha ancora caricato la foto di oggi` : 'Il tuo partner non ha ancora caricato la foto di oggi'}
             </p>
             <p className="text-gray-400 text-xs">
               Torna più tardi per vedere il suo momento speciale
