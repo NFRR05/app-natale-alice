@@ -13,8 +13,11 @@ import {
 } from 'firebase/firestore'
 import { getToken } from 'firebase/messaging'
 import { auth, db, messaging, vapidKey } from '../../firebaseConfig'
+import { useTheme } from '../contexts/ThemeContext'
+import StreakBadge from './StreakBadge'
 
 export default function Dashboard({ user, userProfile, onSelectChat, onAddChat, onProfileClick }) {
+  const { theme, toggleTheme } = useTheme()
   const [conversations, setConversations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -182,20 +185,42 @@ export default function Dashboard({ user, userProfile, onSelectChat, onAddChat, 
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-pink-50/20 to-rose-50/30">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-pink-50/20 to-rose-50/30 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       {/* Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/70 border-b border-gray-200/50 shadow-sm">
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/70 dark:bg-gray-800/70 border-b border-gray-200/50 dark:border-gray-700/50 shadow-sm">
         <div className="max-w-2xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
-            <div>
-              <h1 className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
-                MyBubiAPP
-              </h1>
-              <p className="text-xs text-gray-500">
-                Ciao, @{userProfile?.username || user.email}
-              </p>
+            <div className="flex items-center gap-3">
+              <div>
+                <h1 className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">
+                  MyBubiAPP
+                </h1>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Ciao, @{userProfile?.username || user.email}
+                </p>
+              </div>
+              {/* Streak Badge */}
+              {userProfile?.streak_count > 0 && (
+                <StreakBadge streakCount={userProfile.streak_count} />
+              )}
             </div>
             <div className="flex items-center gap-2">
+              {/* Theme Toggle */}
+              <button
+                onClick={toggleTheme}
+                className="p-2 rounded-lg hover:bg-gray-100/80 dark:hover:bg-gray-700/80 text-gray-700 dark:text-gray-300 transition-all"
+                title={theme === 'dark' ? 'Modalità chiara' : 'Modalità scura'}
+              >
+                {theme === 'dark' ? (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                  </svg>
+                )}
+              </button>
               {/* Profile Icon */}
               <button
                 onClick={() => {
@@ -267,7 +292,7 @@ export default function Dashboard({ user, userProfile, onSelectChat, onAddChat, 
               {/* Logout Button */}
               <button
                 onClick={handleLogout}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100/80 rounded-lg transition-all duration-200"
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100/80 dark:hover:bg-gray-700/80 rounded-lg transition-all duration-200"
               >
                 Esci
               </button>
@@ -292,7 +317,7 @@ export default function Dashboard({ user, userProfile, onSelectChat, onAddChat, 
               Nuova Chat
             </button>
           </div>
-          <p className="text-gray-600 text-sm mt-1">
+          <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">
             {conversations.length === 0 
               ? 'Inizia una nuova conversazione!'
               : `${conversations.length} conversazion${conversations.length === 1 ? 'e' : 'i'}`
@@ -309,14 +334,14 @@ export default function Dashboard({ user, userProfile, onSelectChat, onAddChat, 
 
         {/* Conversations List */}
         {conversations.length === 0 ? (
-          <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl border border-gray-200/50 p-12 text-center">
+          <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl shadow-xl border border-gray-200/50 dark:border-gray-700/50 p-12 text-center">
             <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-pink-100 to-rose-100 flex items-center justify-center">
               <svg className="w-10 h-10 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Nessuna chat ancora</h3>
-            <p className="text-gray-600 mb-6">
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Nessuna chat ancora</h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
               Inizia a condividere momenti speciali con qualcuno!
             </p>
             <button
@@ -335,7 +360,7 @@ export default function Dashboard({ user, userProfile, onSelectChat, onAddChat, 
               <button
                 key={convo.id}
                 onClick={() => onSelectChat(convo)}
-                className="w-full bg-white/80 backdrop-blur-xl rounded-2xl shadow-lg border border-gray-200/50 p-4 hover:shadow-xl hover:scale-[1.02] transition-all duration-200 text-left group"
+                className="w-full bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl shadow-lg border border-gray-200/50 dark:border-gray-700/50 p-4 hover:shadow-xl hover:scale-[1.02] transition-all duration-200 text-left group"
               >
                 <div className="flex items-center gap-4">
                   {/* Avatar */}
@@ -358,18 +383,18 @@ export default function Dashboard({ user, userProfile, onSelectChat, onAddChat, 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <h3 className="font-semibold text-gray-900 truncate">
+                      <h3 className="font-semibold text-gray-900 dark:text-white truncate">
                         {convo.otherUser?.display_name || convo.otherUser?.username || 'Utente'}
                       </h3>
-                      <span className="text-xs text-gray-500 flex-shrink-0">
+                      <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
                         {formatDate(convo.updated_at)}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-500 truncate">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
                       @{convo.otherUser?.username || 'unknown'}
                     </p>
                     {convo.last_message && (
-                      <p className="text-sm text-gray-600 truncate mt-1">
+                      <p className="text-sm text-gray-600 dark:text-gray-300 truncate mt-1">
                         {convo.last_message}
                       </p>
                     )}

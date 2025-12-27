@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { enableNetwork, doc, getDoc, setDoc } from 'firebase/firestore'
+import { enableNetwork, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore'
 import { auth, db, messaging, vapidKey } from '../firebaseConfig'
 import { getToken, onMessage } from 'firebase/messaging'
 import { ToastProvider } from './contexts/ToastContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 import Login from './components/Login'
 import SignUp from './components/SignUp'
 import Dashboard from './components/Dashboard'
@@ -132,6 +133,33 @@ function App() {
         window.removeEventListener(event, handleActivity)
       })
       clearInactivityTimer()
+    }
+  }, [user])
+
+  // Real-time listener for user profile updates (for streak, etc.)
+  useEffect(() => {
+    if (!user) {
+      setUserProfile(null)
+      return
+    }
+
+    console.log('👂 [APP] Setting up profile listener...')
+    const unsubscribeProfile = onSnapshot(
+      doc(db, 'users', user.uid),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          console.log('🔄 [APP] User profile updated (real-time):', docSnap.data())
+          setUserProfile(docSnap.data())
+        }
+      },
+      (error) => {
+        console.error('❌ [APP] Error listening to profile updates:', error)
+      }
+    )
+
+    return () => {
+      console.log('🔇 [APP] Unsubscribing from profile updates')
+      unsubscribeProfile()
     }
   }, [user])
 
@@ -291,22 +319,25 @@ function App() {
   // Not authenticated - show login or signup
   if (!user) {
     return (
-      <ToastProvider>
-        <div className="min-h-screen">
-          {authView === 'login' ? (
-            <Login onSwitchToSignUp={() => setAuthView('signup')} />
-          ) : (
-            <SignUp onSwitchToLogin={() => setAuthView('login')} />
-          )}
-        </div>
-      </ToastProvider>
+      <ThemeProvider>
+        <ToastProvider>
+          <div className="min-h-screen bg-white dark:bg-gray-900 transition-colors duration-200">
+            {authView === 'login' ? (
+              <Login onSwitchToSignUp={() => setAuthView('signup')} />
+            ) : (
+              <SignUp onSwitchToLogin={() => setAuthView('login')} />
+            )}
+          </div>
+        </ToastProvider>
+      </ThemeProvider>
     )
   }
 
   // Authenticated - show app views
   return (
-    <ToastProvider>
-      <div className="min-h-screen">
+    <ThemeProvider>
+      <ToastProvider>
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-pink-50/20 to-rose-50/30 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-200">
         {currentView === 'dashboard' && (
           <Dashboard 
             user={user}
@@ -343,8 +374,9 @@ function App() {
             onAccountDeleted={handleAccountDeleted}
           />
         )}
-      </div>
-    </ToastProvider>
+        </div>
+      </ToastProvider>
+    </ThemeProvider>
   )
 }
 
