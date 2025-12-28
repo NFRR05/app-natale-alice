@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { enableNetwork, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore'
+import { enableNetwork, doc, getDoc, setDoc } from 'firebase/firestore'
 import { auth, db, messaging, vapidKey } from '../firebaseConfig'
 import { getToken, onMessage } from 'firebase/messaging'
 import { ToastProvider } from './contexts/ToastContext'
@@ -133,33 +133,6 @@ function App() {
         window.removeEventListener(event, handleActivity)
       })
       clearInactivityTimer()
-    }
-  }, [user])
-
-  // Real-time listener for user profile updates (for streak, etc.)
-  useEffect(() => {
-    if (!user) {
-      setUserProfile(null)
-      return
-    }
-
-    console.log('👂 [APP] Setting up profile listener...')
-    const unsubscribeProfile = onSnapshot(
-      doc(db, 'users', user.uid),
-      (docSnap) => {
-        if (docSnap.exists()) {
-          console.log('🔄 [APP] User profile updated (real-time):', docSnap.data())
-          setUserProfile(docSnap.data())
-        }
-      },
-      (error) => {
-        console.error('❌ [APP] Error listening to profile updates:', error)
-      }
-    )
-
-    return () => {
-      console.log('🔇 [APP] Unsubscribing from profile updates')
-      unsubscribeProfile()
     }
   }, [user])
 

@@ -14,7 +14,6 @@ import {
 import { getToken } from 'firebase/messaging'
 import { auth, db, messaging, vapidKey } from '../../firebaseConfig'
 import { useTheme } from '../contexts/ThemeContext'
-import StreakBadge from './StreakBadge'
 
 export default function Dashboard({ user, userProfile, onSelectChat, onAddChat, onProfileClick }) {
   const { theme, toggleTheme } = useTheme()
@@ -190,19 +189,13 @@ export default function Dashboard({ user, userProfile, onSelectChat, onAddChat, 
       <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/70 dark:bg-gray-800/70 border-b border-gray-200/50 dark:border-gray-700/50 shadow-sm">
         <div className="max-w-2xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">
-                  MyBubiAPP
-                </h1>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Ciao, @{userProfile?.username || user.email}
-                </p>
-              </div>
-              {/* Streak Badge */}
-              {userProfile?.streak_count > 0 && (
-                <StreakBadge streakCount={userProfile.streak_count} />
-              )}
+            <div>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">
+                MyBubiAPP
+              </h1>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Ciao, @{userProfile?.username || user.email}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               {/* Theme Toggle */}

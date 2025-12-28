@@ -1,63 +1,9 @@
 import React, { useState, useRef } from 'react'
 import imageCompression from 'browser-image-compression'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { doc, setDoc, serverTimestamp, updateDoc, getDoc } from 'firebase/firestore'
+import { doc, setDoc, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { storage, db } from '../../firebaseConfig'
 import { useToast } from '../contexts/ToastContext'
-
-// Helper function to calculate streak
-const calculateStreak = async (userId, currentDateId) => {
-  try {
-    const userDocRef = doc(db, 'users', userId)
-    const userDoc = await getDoc(userDocRef)
-    
-    if (!userDoc.exists()) {
-      // First upload ever - start streak at 1
-      return { streak_count: 1, last_upload_date: currentDateId }
-    }
-    
-    const userData = userDoc.data()
-    const lastUploadDate = userData.last_upload_date
-    const currentStreak = userData.streak_count || 0
-    
-    if (!lastUploadDate) {
-      // No previous upload - start streak at 1
-      return { streak_count: 1, last_upload_date: currentDateId }
-    }
-    
-    // Parse dates
-    const [lastYear, lastMonth, lastDay] = lastUploadDate.split('-').map(Number)
-    const [currentYear, currentMonth, currentDay] = currentDateId.split('-').map(Number)
-    
-    const lastDate = new Date(lastYear, lastMonth - 1, lastDay)
-    const currentDate = new Date(currentYear, currentMonth - 1, currentDay)
-    const yesterday = new Date(currentDate)
-    yesterday.setDate(yesterday.getDate() - 1)
-    
-    // Check if already uploaded today
-    if (lastUploadDate === currentDateId) {
-      // Already uploaded today - keep current streak
-      return { streak_count: currentStreak, last_upload_date: currentDateId }
-    }
-    
-    // Check if last upload was yesterday (consecutive day)
-    if (
-      lastDate.getFullYear() === yesterday.getFullYear() &&
-      lastDate.getMonth() === yesterday.getMonth() &&
-      lastDate.getDate() === yesterday.getDate()
-    ) {
-      // Consecutive day - increment streak
-      return { streak_count: currentStreak + 1, last_upload_date: currentDateId }
-    }
-    
-    // Last upload was more than 1 day ago - reset streak to 1
-    return { streak_count: 1, last_upload_date: currentDateId }
-  } catch (error) {
-    console.error('Error calculating streak:', error)
-    // On error, default to starting streak at 1
-    return { streak_count: 1, last_upload_date: currentDateId }
-  }
-}
 
 export default function PhotoUpload({ user, dateId, onUploadComplete, conversationId }) {
   const { showToast } = useToast()
@@ -159,16 +105,6 @@ export default function PhotoUpload({ user, dateId, onUploadComplete, conversati
           last_message: '📸 Nuova foto condivisa'
         })
       }
-      
-      // Calculate and update streak
-      const streakData = await calculateStreak(user.uid, dateId)
-      await updateDoc(doc(db, 'users', user.uid), {
-        streak_count: streakData.streak_count,
-        last_upload_date: streakData.last_upload_date,
-        updated_at: serverTimestamp()
-      })
-      console.log('🔥 [UPLOAD] Streak updated:', streakData.streak_count)
-      
       console.log('✅ [UPLOAD] Data saved to Firestore')
 
       setSelectedImage(null)
